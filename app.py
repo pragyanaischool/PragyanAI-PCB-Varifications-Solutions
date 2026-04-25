@@ -103,12 +103,12 @@ if pcb_file:
                 file_path = save_uploaded_file(pcb_file)
 
                 # ----------------------------------------
-                # 🧠 PARSE
+                # 🧠 PARSE (OPTIONAL FOR GRAPH DEBUG)
                 # ----------------------------------------
                 pcb_data = parse_pcb(file_path)
 
                 # ----------------------------------------
-                # 🔗 GRAPH
+                # 🔗 GRAPH (FOR RULES + DEBUG ONLY)
                 # ----------------------------------------
                 graph = build_graph(pcb_data)
                 g_summary = graph_summary(graph)
@@ -119,16 +119,11 @@ if pcb_file:
                 rule_issues = run_rules(graph)
 
                 # ----------------------------------------
-                # 🤖 AI ORCHESTRATOR
+                # 🤖 AI ORCHESTRATOR (FIXED)
                 # ----------------------------------------
-                result = run_full_analysis(
-                    image_path=file_path,
-                    graph_summary=g_summary,
-                    gnn_output=None,
-                    ocr_text=None
-                )
+                result = run_full_analysis(image_path=file_path)
 
-                results = result["results"]
+                results = result.get("results", {})
 
                 # ----------------------------------------
                 # 📊 REPORT
@@ -174,7 +169,6 @@ if pcb_file:
             # 🖼️ VISUAL DEBUGGER
             # ----------------------------------------
             with tab2:
-
                 show_visualization(file_path, results)
 
             # ----------------------------------------
@@ -236,4 +230,3 @@ if pcb_file:
 # ----------------------------------------
 st.markdown("---")
 st.markdown("⚡ PragyanAI | PCB Copilot | Multi-Agent AI System")
-

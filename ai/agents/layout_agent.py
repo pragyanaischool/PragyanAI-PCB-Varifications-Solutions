@@ -3,7 +3,6 @@ import re
 import streamlit as st
 
 from ai.llm import invoke_llm
-from ai.prompts import SYSTEM_PCB_EXPERT, LAYOUT_AGENT_PROMPT
 
 
 # ----------------------------------------
@@ -19,61 +18,85 @@ def extract_json(text):
                 return json.loads(match.group())
             except:
                 pass
-    return {"raw_output": text}
+
+    return {
+        "issues": [],
+        "summary": text,
+        "confidence": 0.5,
+        "raw_output": text
+    }
 
 
 # ----------------------------------------
-# 🧩 BUILD CONTEXT
+# 🧩 MAIN LAYOUT AGENT (MEMORY-BASED)
 # ----------------------------------------
-def build_layout_context(vision=None, graph=None, ocr=None, gnn=None):
+def run_layout_agent(memory, structured=True):
 
-    return f"""
-    PCB CONTEXT:
+    context = memory.get_all()
 
-    Vision Analysis:
-    {vision}
+    # Cross-agent inputs
+    vision_data = memory.get("vision")
+    signal_data = memory.get("signal")
+    power_data = memory.get("power")
+    thermal_data = memory.get("thermal")
 
-    Graph Summary:
-    {graph}
+    prompt = f"""
+    You are a senior PCB Layout Engineer.
 
-    OCR Data:
-    {ocr}
-
-    GNN Output:
-    {gnn}
-    """
-
-
-# ----------------------------------------
-# 🧩 MAIN LAYOUT ANALYSIS
-# ----------------------------------------
-def run_layout_agent(context, structured=True):
-
-    system_prompt = SYSTEM_PCB_EXPERT
-
-    user_prompt = f"""
-    {LAYOUT_AGENT_PROMPT}
+    Analyze PCB layout using the complete system context.
 
     Context:
     {context}
 
-    {"Return structured JSON." if structured else ""}
+    Vision Insights:
+    {vision_data}
 
-    Format:
+    Signal Analysis:
+    {signal_data}
+
+    Power Analysis:
+    {power_data}
+
+    Thermal Analysis:
+    {thermal_data}
+
+    Focus on:
+    - Component placement optimization
+    - Routing efficiency
+    - Trace spacing and clearance
+    - Power vs signal separation
+    - EMI/EMC risk zones
+    - Layer utilization
+    - Design Rule Check (DRC)
+    - Manufacturability (DFM)
+
+    Output STRICT JSON:
+
     {{
         "issues": [
             {{
                 "issue": "...",
                 "severity": "High/Medium/Low",
                 "explanation": "...",
-                "fix": "..."
+                "fix": "...",
+                "location": "optional",
+                "confidence": 0.0-1.0
             }}
         ],
-        "summary": "..."
+        "drc_violations": [
+            {{
+                "type": "...",
+                "severity": "...",
+                "fix": "...",
+                "confidence": 0.0-1.0
+            }}
+        ],
+        "summary": "...",
+        "confidence": 0.0-1.0
     }}
     """
 
-    response = invoke_llm(system_prompt, user_prompt)
+    response = invoke_llm("PCB Layout Expert", prompt)
 
     if structured:
         return extract_json(response)
@@ -84,35 +107,35 @@ def run_layout_agent(context, structured=True):
 # ----------------------------------------
 # 🔍 ADVANCED LAYOUT ANALYSIS
 # ----------------------------------------
-def advanced_layout_analysis(context):
+def advanced_layout_analysis(memory):
 
-    system_prompt = SYSTEM_PCB_EXPERT
+    context = memory.get_all()
 
-    user_prompt = f"""
-    Perform deep PCB layout analysis.
-
-    Check:
-    - Component placement optimization
-    - Routing efficiency
-    - Layer usage
-    - Signal path clarity
-    - Power vs signal separation
-    - EMI/EMC risk zones
+    prompt = f"""
+    Perform deep layout analysis.
 
     Context:
     {context}
 
-    Output JSON:
+    Evaluate:
+    - Placement density
+    - Routing congestion
+    - Signal vs power isolation
+    - EMI hotspots
+    - Manufacturability risks
+
+    Return JSON:
     {{
         "placement_quality": "...",
         "routing_efficiency": "...",
         "layer_usage": "...",
         "issues": [...],
-        "recommendations": [...]
+        "recommendations": [...],
+        "confidence": 0.0-1.0
     }}
     """
 
-    response = invoke_llm(system_prompt, user_prompt)
+    response = invoke_llm("Advanced Layout Engineer", prompt)
 
     return extract_json(response)
 
@@ -120,36 +143,35 @@ def advanced_layout_analysis(context):
 # ----------------------------------------
 # ⚠️ DESIGN RULE CHECK (DRC)
 # ----------------------------------------
-def drc_analysis(context):
+def drc_analysis(memory):
 
-    system_prompt = SYSTEM_PCB_EXPERT
+    context = memory.get_all()
 
-    user_prompt = f"""
-    Perform Design Rule Check (DRC).
+    prompt = f"""
+    Perform PCB Design Rule Check (DRC):
+
+    {context}
 
     Check:
     - Clearance violations
-    - Spacing issues
-    - Trace width compliance
-    - Via spacing
+    - Trace spacing
+    - Via placement
     - Component overlap
 
-    Context:
-    {context}
-
-    Output JSON:
+    Return JSON:
     {{
         "violations": [
             {{
                 "type": "...",
                 "severity": "...",
-                "fix": "..."
+                "fix": "...",
+                "confidence": 0.0-1.0
             }}
         ]
     }}
     """
 
-    response = invoke_llm(system_prompt, user_prompt)
+    response = invoke_llm("DRC Expert", prompt)
 
     return extract_json(response)
 
@@ -157,32 +179,31 @@ def drc_analysis(context):
 # ----------------------------------------
 # 🏭 MANUFACTURABILITY (DFM)
 # ----------------------------------------
-def manufacturability_analysis(context):
+def manufacturability_analysis(memory):
 
-    system_prompt = SYSTEM_PCB_EXPERT
+    context = memory.get_all()
 
-    user_prompt = f"""
-    Evaluate manufacturability (DFM).
+    prompt = f"""
+    Evaluate PCB manufacturability (DFM):
+
+    {context}
 
     Check:
     - Minimum trace width
-    - Drill size feasibility
+    - Drill feasibility
     - Solder mask issues
-    - Component accessibility
     - Assembly complexity
 
-    Context:
-    {context}
-
-    Output JSON:
+    Return JSON:
     {{
         "dfm_score": "...",
         "issues": [...],
-        "recommendations": [...]
+        "recommendations": [...],
+        "confidence": 0.0-1.0
     }}
     """
 
-    response = invoke_llm(system_prompt, user_prompt)
+    response = invoke_llm("DFM Expert", prompt)
 
     return extract_json(response)
 
@@ -190,22 +211,24 @@ def manufacturability_analysis(context):
 # ----------------------------------------
 # 📊 LAYOUT SCORE
 # ----------------------------------------
-def layout_score(context):
+def layout_score(memory):
 
-    system_prompt = SYSTEM_PCB_EXPERT
+    context = memory.get_all()
 
-    user_prompt = f"""
-    Evaluate PCB layout quality.
+    prompt = f"""
+    Evaluate PCB layout score (0-100):
 
-    Context:
     {context}
 
-    Provide:
-    - score (0-100)
-    - explanation
+    Return JSON:
+    {{
+        "score": 0-100,
+        "explanation": "...",
+        "confidence": 0.0-1.0
+    }}
     """
 
-    response = invoke_llm(system_prompt, user_prompt)
+    response = invoke_llm("Layout Evaluator", prompt)
 
     return extract_json(response)
 
@@ -213,27 +236,43 @@ def layout_score(context):
 # ----------------------------------------
 # ⚡ QUICK LAYOUT CHECK
 # ----------------------------------------
-def quick_layout_check(context):
+def quick_layout_check(memory):
 
-    system_prompt = "You are a PCB layout expert."
+    context = memory.get_all()
 
-    user_prompt = f"""
+    prompt = f"""
     Quickly identify layout issues:
 
     {context}
 
-    Output short bullet points.
+    Return short bullet points.
     """
 
-    return invoke_llm(system_prompt, user_prompt)
+    return invoke_llm("Layout Quick Checker", prompt)
 
 
 # ----------------------------------------
-# 🔄 STREAMLIT CACHED VERSION
+# 🔄 STREAMLIT CACHE
 # ----------------------------------------
 @st.cache_data(show_spinner=False)
-def cached_layout_agent(context):
-    return run_layout_agent(context)
+def cached_layout_agent(memory_dict):
+    """
+    Cache-friendly wrapper
+    """
+
+    class TempMemory:
+        def __init__(self, data):
+            self.data = data
+
+        def get_all(self):
+            return self.data
+
+        def get(self, key, default=None):
+            return self.data.get(key, default)
+
+    temp_memory = TempMemory(memory_dict)
+
+    return run_layout_agent(temp_memory)
 
 
 # ----------------------------------------
@@ -241,37 +280,35 @@ def cached_layout_agent(context):
 # ----------------------------------------
 def prioritize_layout_issues(layout_output):
 
-    system_prompt = SYSTEM_PCB_EXPERT
-
-    user_prompt = f"""
+    prompt = f"""
     Prioritize layout issues:
 
     {layout_output}
 
-    Rank based on severity and impact.
+    Rank based on severity, EMI risk, and manufacturability.
     """
 
-    return invoke_llm(system_prompt, user_prompt)
+    return invoke_llm("Layout Issue Prioritizer", prompt)
 
 
 # ----------------------------------------
-# 🔧 LAYOUT OPTIMIZATION SUGGESTIONS
+# 🔧 OPTIMIZATION ENGINE
 # ----------------------------------------
-def layout_optimization(context):
+def suggest_layout_optimizations(memory):
 
-    system_prompt = SYSTEM_PCB_EXPERT
+    context = memory.get_all()
 
-    user_prompt = f"""
-    Suggest layout optimizations.
+    prompt = f"""
+    Suggest layout optimizations:
 
-    Context:
     {context}
 
-    Recommend:
+    Include:
     - Component repositioning
     - Routing improvements
+    - EMI reduction
     - Layer restructuring
-    - EMI reduction strategies
     """
 
-    return invoke_llm(system_prompt, user_prompt)
+    return invoke_llm("Layout Optimization Expert", prompt)
+    

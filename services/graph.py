@@ -1,197 +1,191 @@
+# services/graph.py
+
 """
-Graph Service
+PCB Graph Builder
 
-Builds PCB graph representation from parsed data.
+Creates graph from:
+- Vision (YOLO components)
+- OCR (labels)
+- Segmentation (optional)
 
-Supports:
-- Node creation (components)
-- Edge creation (nets)
-- Feature extraction for GNN
-- Graph summary utilities
+Graph Format:
+{
+    "nodes": [...],
+    "edges": [...],
+    "metadata": {...}
+}
 """
 
-import networkx as nx
+from typing import Dict, List
 import math
-from typing import Dict, List, Tuple
 
 
 # ----------------------------------------
 # 🧠 MAIN GRAPH BUILDER
 # ----------------------------------------
-def build_graph(pcb_data: Dict) -> nx.Graph:
+def build_graph(vision_data: Dict, ocr_data: Dict = None) -> Dict:
 
-    G = nx.Graph()
+    structured = vision_data.get("structured", {})
+    components = structured.get("components", [])
 
-    components = pcb_data.get("components", [])
-    nets = pcb_data.get("nets", [])
+    nodes = []
+    edges = []
 
-    # Add nodes
-    for comp in components:
-        G.add_node(comp, type=detect_component_type(comp))
+    # ----------------------------------------
+    # 🔹 CREATE NODES
+    # ----------------------------------------
+    for idx, comp in enumerate(components):
 
-    # Add edges
-    for n1, n2 in nets:
-        if n1 in G.nodes and n2 in G.nodes:
-            G.add_edge(n1, n2)
+        node = {
+            "id": idx,
+            "type": comp.get("component", "unknown"),
+            "bbox": comp.get("bbox", []),
+            "center": _get_center(comp.get("bbox", [])),
+        }
 
-    return G
+        nodes.append(node)
+
+    # ----------------------------------------
+    # 🔹 CONNECT NODES (PROXIMITY-BASED)
+    # ----------------------------------------
+    edges = _build_edges(nodes)
+
+    # ----------------------------------------
+    # 🔹 OCR ENRICHMENT
+    # ----------------------------------------
+    if ocr_data:
+        _attach_ocr_labels(nodes, ocr_data)
+
+    # ----------------------------------------
+    # 📊 METADATA
+    # ----------------------------------------
+    metadata = {
+        "num_nodes": len(nodes),
+        "num_edges": len(edges),
+        "node_types": list(set(n["type"] for n in nodes))
+    }
+
+    return {
+        "nodes": nodes,
+        "edges": edges,
+        "metadata": metadata
+    }
 
 
 # ----------------------------------------
-# 🔍 COMPONENT TYPE DETECTION
+# 📐 COMPUTE CENTER
 # ----------------------------------------
-def detect_component_type(name: str) -> str:
+def _get_center(bbox):
 
-    if name.startswith("R"):
-        return "Resistor"
-    elif name.startswith("C"):
-        return "Capacitor"
-    elif name.startswith("U"):
-        return "IC"
-    elif name.startswith("L"):
-        return "Inductor"
-    elif name.startswith("D"):
-        return "Diode"
-    elif name.startswith("Q"):
-        return "Transistor"
-    return "Unknown"
+    if not bbox or len(bbox) != 4:
+        return (0, 0)
+
+    x1, y1, x2, y2 = bbox
+    return ((x1 + x2) / 2, (y1 + y2) / 2)
+
+
+# ----------------------------------------
+# 🔗 BUILD EDGES (DISTANCE BASED)
+# ----------------------------------------
+def _build_edges(nodes: List[Dict], threshold=150):
+
+    edges = []
+
+    for i in range(len(nodes)):
+        for j in range(i + 1, len(nodes)):
+
+            dist = _distance(nodes[i]["center"], nodes[j]["center"])
+
+            if dist < threshold:
+                edges.append({
+                    "source": nodes[i]["id"],
+                    "target": nodes[j]["id"],
+                    "distance": round(dist, 2)
+                })
+
+    return edges
+
+
+# ----------------------------------------
+# 📏 DISTANCE FUNCTION
+# ----------------------------------------
+def _distance(p1, p2):
+
+    return math.sqrt((p1[0] - p2[0])**2 + (p1[1] - p2[1])**2)
+
+
+# ----------------------------------------
+# 🔤 ATTACH OCR LABELS
+# ----------------------------------------
+def _attach_ocr_labels(nodes, ocr_data):
+
+    labels = ocr_data.get("components", [])
+
+    for i, node in enumerate(nodes):
+        if i < len(labels):
+            node["label"] = labels[i]
+        else:
+            node["label"] = None
 
 
 # ----------------------------------------
 # 📊 GRAPH SUMMARY
 # ----------------------------------------
-def graph_summary(graph: nx.Graph) -> str:
-
-    return f"Nodes={graph.number_of_nodes()}, Edges={graph.number_of_edges()}"
-
-
-# ----------------------------------------
-# 🔗 DEGREE ANALYSIS
-# ----------------------------------------
-def node_degrees(graph: nx.Graph) -> Dict:
-
-    return dict(graph.degree())
-
-
-# ----------------------------------------
-# ⚠️ FIND DISCONNECTED NODES
-# ----------------------------------------
-def find_isolated_nodes(graph: nx.Graph) -> List[str]:
-
-    return list(nx.isolates(graph))
-
-
-# ----------------------------------------
-# 🔥 FIND HIGH DEGREE NODES
-# ----------------------------------------
-def find_high_degree_nodes(graph: nx.Graph, threshold: int = 5):
-
-    return [node for node, deg in graph.degree() if deg > threshold]
-
-
-# ----------------------------------------
-# 🔄 GRAPH TO EDGE LIST
-# ----------------------------------------
-def graph_to_edges(graph: nx.Graph) -> List[Tuple[str, str]]:
-
-    return list(graph.edges())
-
-
-# ----------------------------------------
-# 🧠 GRAPH FEATURES (FOR GNN)
-# ----------------------------------------
-def graph_features(graph: nx.Graph):
-
-    features = []
-
-    for node in graph.nodes(data=True):
-        name = node[0]
-        node_type = node[1].get("type", "Unknown")
-
-        features.append([
-            len(name),                  # simple feature
-            hash(node_type) % 1000      # encoded type
-        ])
-
-    return features
-
-
-# ----------------------------------------
-# 📐 DISTANCE BASED GRAPH (IMAGE MODE)
-# ----------------------------------------
-def build_spatial_graph(components: List[Dict], distance_threshold=150):
-
-    """
-    Build graph using spatial proximity (from vision model)
-    """
-
-    G = nx.Graph()
-
-    # Add nodes
-    for i, comp in enumerate(components):
-        G.add_node(i, pos=comp["center"], type=comp.get("type", "Unknown"))
-
-    # Connect based on distance
-    for i in range(len(components)):
-        for j in range(i + 1, len(components)):
-
-            x1, y1 = components[i]["center"]
-            x2, y2 = components[j]["center"]
-
-            dist = math.hypot(x1 - x2, y1 - y2)
-
-            if dist < distance_threshold:
-                G.add_edge(i, j, weight=dist)
-
-    return G
-
-
-# ----------------------------------------
-# 🔄 MERGE MULTIPLE GRAPHS
-# ----------------------------------------
-def merge_graphs(graph_list: List[nx.Graph]) -> nx.Graph:
-
-    merged = nx.Graph()
-
-    for g in graph_list:
-        merged = nx.compose(merged, g)
-
-    return merged
-
-
-# ----------------------------------------
-# 📊 CONNECTIVITY CHECK
-# ----------------------------------------
-def is_connected(graph: nx.Graph) -> bool:
-
-    if graph.number_of_nodes() == 0:
-        return False
-
-    return nx.is_connected(graph)
-
-
-# ----------------------------------------
-# 🔍 COMPONENT CLUSTERS
-# ----------------------------------------
-def find_clusters(graph: nx.Graph):
-
-    return list(nx.connected_components(graph))
-
-
-# ----------------------------------------
-# ⚡ CRITICAL NODES (CUT VERTICES)
-# ----------------------------------------
-def critical_nodes(graph: nx.Graph):
-
-    return list(nx.articulation_points(graph))
-
-
-# ----------------------------------------
-# 🔁 GRAPH TO DICT (SERIALIZATION)
-# ----------------------------------------
-def graph_to_dict(graph: nx.Graph):
+def graph_summary(graph):
 
     return {
-        "nodes": list(graph.nodes(data=True)),
-        "edges": list(graph.edges())
+        "nodes": len(graph.get("nodes", [])),
+        "edges": len(graph.get("edges", [])),
+        "types": graph.get("metadata", {}).get("node_types", [])
     }
+
+
+# ----------------------------------------
+# 🔍 FIND ISOLATED NODES
+# ----------------------------------------
+def find_isolated_nodes(graph):
+
+    connected = set()
+
+    for e in graph.get("edges", []):
+        connected.add(e["source"])
+        connected.add(e["target"])
+
+    all_nodes = set(n["id"] for n in graph.get("nodes", []))
+
+    isolated = list(all_nodes - connected)
+
+    return isolated
+
+
+# ----------------------------------------
+# 🔧 GRAPH VALIDATION
+# ----------------------------------------
+def validate_graph(graph):
+
+    issues = []
+
+    if not graph.get("nodes"):
+        issues.append("No nodes detected")
+
+    if not graph.get("edges"):
+        issues.append("No connections found")
+
+    isolated = find_isolated_nodes(graph)
+
+    if isolated:
+        issues.append(f"Isolated nodes detected: {isolated}")
+
+    return {
+        "valid": len(issues) == 0,
+        "issues": issues
+    }
+
+
+# ----------------------------------------
+# ⚡ QUICK GRAPH BUILDER (SHORTCUT)
+# ----------------------------------------
+def build_graph_from_vision_only(vision_data):
+
+    return build_graph(vision_data)
+    

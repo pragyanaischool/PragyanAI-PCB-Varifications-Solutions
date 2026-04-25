@@ -1,14 +1,12 @@
 # services/rules.py
 
 """
-Enhanced Rule Engine (PCB DRC + Graph Intelligence)
+Enhanced PCB Rule Engine (Production Version)
 
-Checks:
-✔ Connectivity
-✔ Reliability
-✔ Congestion
-✔ Redundancy
-✔ Structural issues
+✔ Accepts dict OR networkx graph
+✔ Safe execution (no crashes)
+✔ PCB-aware checks
+✔ Connectivity + reliability + congestion
 """
 
 from typing import List, Dict
@@ -16,17 +14,45 @@ import networkx as nx
 
 
 # ----------------------------------------
+# 🔁 GRAPH NORMALIZER (CRITICAL FIX)
+# ----------------------------------------
+def ensure_graph(graph):
+
+    if isinstance(graph, nx.Graph):
+        return graph
+
+    if isinstance(graph, dict):
+
+        G = nx.Graph()
+
+        nodes = graph.get("nodes", [])
+        edges = graph.get("edges", [])
+
+        try:
+            G.add_nodes_from(nodes)
+            G.add_edges_from(edges)
+        except:
+            return None
+
+        return G
+
+    return None
+
+
+# ----------------------------------------
 # 🚀 MAIN RULE ENGINE
 # ----------------------------------------
-def run_rules(graph: nx.Graph) -> List[Dict]:
+def run_rules(graph_input) -> List[Dict]:
+
+    graph = ensure_graph(graph_input)
 
     if graph is None or graph.number_of_nodes() == 0:
         return [{
             "category": "Input",
-            "issue": "Empty Graph",
+            "issue": "Empty or Invalid Graph",
             "severity": "High",
-            "explanation": "No PCB data available",
-            "fix": "Check input pipeline"
+            "explanation": "Graph data missing or invalid",
+            "fix": "Check pipeline / parser"
         }]
 
     issues = []
@@ -57,8 +83,8 @@ def check_floating_components(graph: nx.Graph):
                 "issue": "Floating Component",
                 "node": node,
                 "severity": "High",
-                "explanation": "Component not connected",
-                "fix": "Check net connections"
+                "explanation": "Component is not connected",
+                "fix": "Ensure proper net connection"
             })
 
     return issues
@@ -79,7 +105,7 @@ def check_high_degree_nodes(graph: nx.Graph, threshold: int = 6):
                 "node": node,
                 "severity": "Medium",
                 "explanation": f"{degree} connections exceed threshold",
-                "fix": "Check for short circuits"
+                "fix": "Check for unintended shorts"
             })
 
     return issues
@@ -90,7 +116,10 @@ def check_high_degree_nodes(graph: nx.Graph, threshold: int = 6):
 # ----------------------------------------
 def check_isolated_clusters(graph: nx.Graph):
 
-    clusters = list(nx.connected_components(graph))
+    try:
+        clusters = list(nx.connected_components(graph))
+    except:
+        return []
 
     if len(clusters) > 1:
         return [{
@@ -98,7 +127,7 @@ def check_isolated_clusters(graph: nx.Graph):
             "issue": "Disconnected Clusters",
             "severity": "High",
             "explanation": f"{len(clusters)} isolated networks",
-            "fix": "Ensure complete routing"
+            "fix": "Ensure all nets are connected"
         }]
 
     return []
@@ -112,7 +141,9 @@ def check_critical_nodes(graph: nx.Graph):
     issues = []
 
     try:
-        for node in nx.articulation_points(graph):
+        critical = list(nx.articulation_points(graph))
+
+        for node in critical:
             issues.append({
                 "category": "Reliability",
                 "issue": "Critical Node",
@@ -142,7 +173,7 @@ def check_sparse_connectivity(graph: nx.Graph):
             "category": "Design",
             "issue": "Sparse Connectivity",
             "severity": "Medium",
-            "explanation": f"Low avg degree: {avg_degree:.2f}",
+            "explanation": f"Low avg degree ({avg_degree:.2f})",
             "fix": "Check missing routes"
         }]
 
@@ -150,7 +181,7 @@ def check_sparse_connectivity(graph: nx.Graph):
 
 
 # ----------------------------------------
-# 🔗 BRIDGE EDGES (CRITICAL LINKS)
+# 🔗 BRIDGE EDGES
 # ----------------------------------------
 def check_bridge_edges(graph: nx.Graph):
 
@@ -165,7 +196,7 @@ def check_bridge_edges(graph: nx.Graph):
                 "issue": "Critical Connection",
                 "edge": edge,
                 "severity": "Medium",
-                "explanation": "Edge removal disconnects graph",
+                "explanation": "Removing this edge breaks connectivity",
                 "fix": "Add alternate path"
             })
     except:
@@ -199,35 +230,39 @@ def check_cycle_loops(graph: nx.Graph):
 
 
 # ----------------------------------------
-# 🔥 DENSE REGION CHECK
+# 🔥 DENSITY CHECK
 # ----------------------------------------
 def check_dense_regions(graph: nx.Graph):
 
     issues = []
 
-    density = nx.density(graph)
+    try:
+        density = nx.density(graph)
 
-    if density > 0.3:
-        issues.append({
-            "category": "Layout",
-            "issue": "High Density Region",
-            "severity": "Medium",
-            "explanation": f"Graph density {density:.2f}",
-            "fix": "Reduce congestion"
-        })
+        if density > 0.3:
+            issues.append({
+                "category": "Layout",
+                "issue": "High Density Region",
+                "severity": "Medium",
+                "explanation": f"Density {density:.2f}",
+                "fix": "Reduce congestion"
+            })
+    except:
+        pass
 
     return issues
 
 
 # ----------------------------------------
-# 📊 RULE SUMMARY
+# 📊 SUMMARY
 # ----------------------------------------
 def summarize_rules(issues: List[Dict]):
 
     summary = {"total": len(issues), "high": 0, "medium": 0, "low": 0}
 
     for i in issues:
-        sev = i.get("severity", "").lower()
+        sev = str(i.get("severity", "")).lower()
+
         if sev in summary:
             summary[sev] += 1
 
@@ -235,14 +270,14 @@ def summarize_rules(issues: List[Dict]):
 
 
 # ----------------------------------------
-# 📊 RULE SCORE
+# 📊 SCORE
 # ----------------------------------------
 def rule_score(issues: List[Dict]):
 
     score = 100
 
     for i in issues:
-        sev = i.get("severity", "").lower()
+        sev = str(i.get("severity", "")).lower()
 
         if sev == "high":
             score -= 12
@@ -252,3 +287,4 @@ def rule_score(issues: List[Dict]):
             score -= 3
 
     return max(score, 0)
+    

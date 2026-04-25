@@ -15,13 +15,17 @@ def get_pipeline():
 
 
 # ----------------------------------------
-# 🧾 JSON PARSER
+# 🧾 JSON PARSER (ROBUST)
 # ----------------------------------------
 def extract_json(text):
+
+    if isinstance(text, dict):
+        text = text.get("content", str(text))
+
     try:
         return json.loads(text)
     except:
-        match = re.search(r"\{.*\}", text, re.DOTALL)
+        match = re.search(r"\{.*\}", str(text), re.DOTALL)
         if match:
             try:
                 return json.loads(match.group())
@@ -30,22 +34,44 @@ def extract_json(text):
 
     return {
         "summary": str(text),
+        "issues": [],
         "confidence": 0.5,
         "raw_output": text
     }
 
 
 # ----------------------------------------
+# 📍 NORMALIZE LOCATION (FOR UI)
+# ----------------------------------------
+def normalize_locations(issues):
+
+    for issue in issues:
+        loc = issue.get("location")
+
+        # Ensure bbox format [x1, y1, x2, y2]
+        if isinstance(loc, str):
+            issue["location"] = None
+
+    return issues
+
+
+# ----------------------------------------
 # 👁️ MAIN VISION AGENT
 # ----------------------------------------
-def run_vision_agent(image_path, structured=True):
+def run_vision_agent(image_path, memory=None, structured=True):
 
     pipeline = get_pipeline()
 
     # ----------------------------------------
-    # 🔍 PERCEPTION LAYER (REAL MODELS)
+    # 🔍 PERCEPTION (SAFE)
     # ----------------------------------------
-    perception = pipeline.safe_run(image_path)
+    try:
+        perception = pipeline.safe_run(image_path)
+    except Exception as e:
+        return {
+            "structured": {},
+            "reasoning": {"error": str(e)}
+        }
 
     components = perception.get("components", [])
     ocr = perception.get("ocr", {})
@@ -58,30 +84,25 @@ def run_vision_agent(image_path, structured=True):
     prompt = f"""
     You are a PCB Vision Analysis Expert.
 
-    Analyze the PCB using extracted data:
+    Analyze the PCB:
 
     Components:
     {components}
 
-    OCR Data:
+    OCR:
     {ocr}
 
     Segmentation:
     {segmentation}
 
-    Metadata:
-    {metadata}
-
     Identify:
     - Component distribution
-    - Congestion regions
     - Routing density
     - Missing components
     - Label inconsistencies
     - Visual defects
 
-    Output STRICT JSON:
-
+    Return STRICT JSON:
     {{
         "component_analysis": "...",
         "routing_analysis": "...",
@@ -89,7 +110,7 @@ def run_vision_agent(image_path, structured=True):
             {{
                 "issue": "...",
                 "severity": "High/Medium/Low",
-                "location": "...",
+                "location": [x1,y1,x2,y2],
                 "explanation": "...",
                 "confidence": 0.0-1.0
             }}
@@ -99,16 +120,21 @@ def run_vision_agent(image_path, structured=True):
     }}
     """
 
-    response = invoke_llm("PCB Vision Expert", prompt)
-
-    if structured:
-        reasoning = extract_json(response)
+    # ----------------------------------------
+    # 🧠 MEMORY-AWARE CALL
+    # ----------------------------------------
+    if memory:
+        response = invoke_with_memory(memory, "PCB Vision Expert", prompt)
     else:
-        reasoning = response
+        response = invoke_llm("PCB Vision Expert", prompt)
+        response = response.get("content", response)
 
-    # ----------------------------------------
-    # 📦 FINAL OUTPUT
-    # ----------------------------------------
+    reasoning = extract_json(response)
+
+    # Normalize locations
+    if "issues" in reasoning:
+        reasoning["issues"] = normalize_locations(reasoning["issues"])
+
     return {
         "structured": perception,
         "reasoning": reasoning
@@ -124,7 +150,7 @@ def analyze_front_back(front_image, back_image):
     back = run_vision_agent(back_image)
 
     prompt = f"""
-    Compare front and back PCB:
+    Compare PCB front and back:
 
     FRONT:
     {front}
@@ -132,17 +158,16 @@ def analyze_front_back(front_image, back_image):
     BACK:
     {back}
 
-    Identify:
+    Detect:
     - Missing vias
-    - Alignment issues
-    - Connectivity problems
+    - Misalignment
+    - Connectivity gaps
 
     Return JSON.
     """
 
     response = invoke_llm("PCB Dual Side Analyst", prompt)
-
-    return extract_json(response)
+    return extract_json(response.get("content", response))
 
 
 # ----------------------------------------
@@ -152,17 +177,21 @@ def quick_vision_check(image_path):
 
     pipeline = get_pipeline()
 
-    perception = pipeline.quick_run(image_path)
+    try:
+        perception = pipeline.quick_run(image_path)
+    except:
+        return "Quick vision failed"
 
     prompt = f"""
-    Provide quick insights:
+    Provide quick PCB insights:
 
     {perception}
 
-    Keep it short.
+    Keep it concise.
     """
 
-    return invoke_llm("Quick PCB Vision Checker", prompt)
+    response = invoke_llm("Quick PCB Vision Checker", prompt)
+    return response.get("content", response)
 
 
 # ----------------------------------------
@@ -190,28 +219,29 @@ def cached_vision_agent(image_path):
 
 
 # ----------------------------------------
-# 🧠 VISUAL ISSUE PRIORITIZATION
+# 🧠 ISSUE PRIORITIZATION
 # ----------------------------------------
 def prioritize_visual_issues(vision_output):
 
     prompt = f"""
-    Prioritize visual PCB issues:
+    Prioritize PCB issues:
 
     {vision_output}
 
-    Rank based on severity and risk.
+    Rank by severity and impact.
     """
 
-    return invoke_llm("Vision Issue Prioritizer", prompt)
+    response = invoke_llm("Vision Issue Prioritizer", prompt)
+    return response.get("content", response)
 
 
 # ----------------------------------------
-# 🔧 SUGGEST VISUAL FIXES
+# 🔧 FIX SUGGESTIONS
 # ----------------------------------------
 def suggest_visual_fixes(vision_output):
 
     prompt = f"""
-    Suggest fixes based on visual PCB issues:
+    Suggest PCB fixes:
 
     {vision_output}
 
@@ -220,5 +250,6 @@ def suggest_visual_fixes(vision_output):
     - Routing improvements
     """
 
-    return invoke_llm("PCB Vision Fix Expert", prompt)
+    response = invoke_llm("PCB Vision Fix Expert", prompt)
+    return response.get("content", response)
     

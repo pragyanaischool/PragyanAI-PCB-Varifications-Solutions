@@ -3,7 +3,6 @@ import re
 import streamlit as st
 
 from ai.llm import invoke_llm
-from ai.prompts import SYSTEM_PCB_EXPERT, THERMAL_AGENT_PROMPT
 
 
 # ----------------------------------------
@@ -19,61 +18,79 @@ def extract_json(text):
                 return json.loads(match.group())
             except:
                 pass
-    return {"raw_output": text}
+
+    return {
+        "issues": [],
+        "summary": text,
+        "confidence": 0.5,
+        "raw_output": text
+    }
 
 
 # ----------------------------------------
-# 🌡️ BUILD CONTEXT
+# 🌡️ MAIN THERMAL AGENT (MEMORY-BASED)
 # ----------------------------------------
-def build_thermal_context(vision=None, graph=None, ocr=None, gnn=None):
+def run_thermal_agent(memory, structured=True):
 
-    return f"""
-    PCB CONTEXT:
+    context = memory.get_all()
 
-    Vision Analysis:
-    {vision}
+    # Cross-agent dependencies
+    power_data = memory.get("power")
+    layout_data = memory.get("layout")
+    vision_data = memory.get("vision")
 
-    Graph Summary:
-    {graph}
+    prompt = f"""
+    You are a senior PCB Thermal Engineer.
 
-    OCR Data:
-    {ocr}
-
-    GNN Output:
-    {gnn}
-    """
-
-
-# ----------------------------------------
-# 🌡️ MAIN THERMAL ANALYSIS
-# ----------------------------------------
-def run_thermal_agent(context, structured=True):
-
-    system_prompt = SYSTEM_PCB_EXPERT
-
-    user_prompt = f"""
-    {THERMAL_AGENT_PROMPT}
+    Analyze thermal performance using the full PCB context.
 
     Context:
     {context}
 
-    {"Return structured JSON." if structured else ""}
+    Power Analysis (heat sources):
+    {power_data}
 
-    Format:
+    Layout Analysis (placement impact):
+    {layout_data}
+
+    Vision Observations:
+    {vision_data}
+
+    Focus on:
+    - Heat concentration zones
+    - Power component clustering
+    - Cooling inefficiencies
+    - Copper area for heat dissipation
+    - Thermal vias presence
+    - Airflow constraints
+
+    Output STRICT JSON:
+
     {{
         "issues": [
             {{
                 "issue": "...",
                 "severity": "High/Medium/Low",
                 "explanation": "...",
-                "fix": "..."
+                "fix": "...",
+                "location": "optional",
+                "confidence": 0.0-1.0
             }}
         ],
-        "summary": "..."
+        "hotspots": [
+            {{
+                "region": "...",
+                "reason": "...",
+                "severity": "...",
+                "confidence": 0.0-1.0
+            }}
+        ],
+        "summary": "...",
+        "confidence": 0.0-1.0
     }}
     """
 
-    response = invoke_llm(system_prompt, user_prompt)
+    response = invoke_llm("PCB Thermal Expert", prompt)
 
     if structured:
         return extract_json(response)
@@ -84,58 +101,59 @@ def run_thermal_agent(context, structured=True):
 # ----------------------------------------
 # 🔥 ADVANCED THERMAL ANALYSIS
 # ----------------------------------------
-def advanced_thermal_analysis(context):
+def advanced_thermal_analysis(memory):
 
-    system_prompt = SYSTEM_PCB_EXPERT
+    context = memory.get_all()
 
-    user_prompt = f"""
+    prompt = f"""
     Perform deep thermal analysis.
-
-    Check:
-    - Heat concentration zones
-    - Power component clustering
-    - Cooling inefficiencies
-    - Copper area for heat spreading
-    - Thermal vias presence
-    - Airflow considerations
 
     Context:
     {context}
 
-    Output JSON:
+    Evaluate:
+    - Heat distribution uniformity
+    - Thermal resistance paths
+    - Heat dissipation efficiency
+    - Component overheating risk
+
+    Return JSON:
     {{
-        "hotspots": "...",
-        "cooling_efficiency": "...",
         "heat_distribution": "...",
+        "cooling_efficiency": "...",
+        "risk_zones": "...",
         "issues": [...],
-        "recommendations": [...]
+        "recommendations": [...],
+        "confidence": 0.0-1.0
     }}
     """
 
-    response = invoke_llm(system_prompt, user_prompt)
+    response = invoke_llm("Advanced Thermal Engineer", prompt)
 
     return extract_json(response)
 
 
 # ----------------------------------------
-# 🌡️ THERMAL SCORE
+# 📊 THERMAL SCORE
 # ----------------------------------------
-def thermal_score(context):
+def thermal_score(memory):
 
-    system_prompt = SYSTEM_PCB_EXPERT
+    context = memory.get_all()
 
-    user_prompt = f"""
-    Evaluate thermal performance of PCB.
+    prompt = f"""
+    Evaluate thermal performance score (0-100):
 
-    Context:
     {context}
 
-    Provide:
-    - score (0-100)
-    - explanation
+    Return JSON:
+    {{
+        "score": 0-100,
+        "explanation": "...",
+        "confidence": 0.0-1.0
+    }}
     """
 
-    response = invoke_llm(system_prompt, user_prompt)
+    response = invoke_llm("Thermal Evaluator", prompt)
 
     return extract_json(response)
 
@@ -143,63 +161,43 @@ def thermal_score(context):
 # ----------------------------------------
 # ⚡ QUICK THERMAL CHECK
 # ----------------------------------------
-def quick_thermal_check(context):
+def quick_thermal_check(memory):
 
-    system_prompt = "You are a PCB thermal expert."
+    context = memory.get_all()
 
-    user_prompt = f"""
+    prompt = f"""
     Quickly identify thermal risks:
 
     {context}
 
-    Output short bullet points.
+    Return short bullet points.
     """
 
-    return invoke_llm(system_prompt, user_prompt)
+    return invoke_llm("Thermal Quick Checker", prompt)
 
 
 # ----------------------------------------
-# 🔥 HOTSPOT DETECTION MODE
-# ----------------------------------------
-def hotspot_analysis(context):
-
-    system_prompt = SYSTEM_PCB_EXPERT
-
-    user_prompt = f"""
-    Identify thermal hotspots.
-
-    Focus on:
-    - Voltage regulators
-    - Power ICs
-    - Dense routing areas
-
-    Context:
-    {context}
-
-    Output JSON:
-    {{
-        "hotspots": [
-            {{
-                "location": "...",
-                "severity": "...",
-                "reason": "...",
-                "fix": "..."
-            }}
-        ]
-    }}
-    """
-
-    response = invoke_llm(system_prompt, user_prompt)
-
-    return extract_json(response)
-
-
-# ----------------------------------------
-# 🔄 STREAMLIT CACHED VERSION
+# 🔄 STREAMLIT CACHE
 # ----------------------------------------
 @st.cache_data(show_spinner=False)
-def cached_thermal_agent(context):
-    return run_thermal_agent(context)
+def cached_thermal_agent(memory_dict):
+    """
+    Cache-friendly wrapper
+    """
+
+    class TempMemory:
+        def __init__(self, data):
+            self.data = data
+
+        def get_all(self):
+            return self.data
+
+        def get(self, key, default=None):
+            return self.data.get(key, default)
+
+    temp_memory = TempMemory(memory_dict)
+
+    return run_thermal_agent(temp_memory)
 
 
 # ----------------------------------------
@@ -207,37 +205,36 @@ def cached_thermal_agent(context):
 # ----------------------------------------
 def prioritize_thermal_issues(thermal_output):
 
-    system_prompt = SYSTEM_PCB_EXPERT
-
-    user_prompt = f"""
+    prompt = f"""
     Prioritize thermal issues:
 
     {thermal_output}
 
-    Rank based on severity and risk.
+    Rank by overheating risk and failure probability.
     """
 
-    return invoke_llm(system_prompt, user_prompt)
+    return invoke_llm("Thermal Issue Prioritizer", prompt)
 
 
 # ----------------------------------------
-# 🌬️ COOLING STRATEGY SUGGESTION
+# 🔧 COOLING STRATEGY ENGINE
 # ----------------------------------------
-def cooling_strategy(context):
+def suggest_cooling_strategies(memory):
 
-    system_prompt = SYSTEM_PCB_EXPERT
+    context = memory.get_all()
 
-    user_prompt = f"""
-    Suggest cooling improvements.
+    prompt = f"""
+    Suggest cooling improvements:
 
-    Context:
     {context}
 
-    Recommend:
+    Include:
     - Heat sinks
     - Thermal vias
     - Copper pours
-    - Airflow design
+    - Component relocation
+    - Airflow optimization
     """
 
-    return invoke_llm(system_prompt, user_prompt)
+    return invoke_llm("Thermal Optimization Expert", prompt)
+    

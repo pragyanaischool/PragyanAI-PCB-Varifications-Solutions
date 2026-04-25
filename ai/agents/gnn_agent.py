@@ -2,8 +2,7 @@ import json
 import re
 import streamlit as st
 
-from ai.llm import invoke_llm
-from ai.prompts import SYSTEM_PCB_EXPERT, GNN_PROMPT
+from ai.llm import invoke_llm, invoke_with_memory
 
 
 # ----------------------------------------
@@ -19,60 +18,74 @@ def extract_json(text):
                 return json.loads(match.group())
             except:
                 pass
-    return {"raw_output": text}
+
+    return {
+        "issues": [],
+        "summary": str(text),
+        "confidence": 0.5,
+        "raw_output": text
+    }
 
 
 # ----------------------------------------
-# 🧠 BUILD CONTEXT
+# 🤖 MAIN GNN AGENT
 # ----------------------------------------
-def build_gnn_context(graph_summary=None, gnn_output=None, vision=None, ocr=None):
+def run_gnn_agent(graph_data, gnn_output=None, memory=None, structured=True):
 
-    return f"""
-    PCB CONTEXT:
+    # Optional memory context
+    context = memory.get_all() if memory else {}
 
-    Graph Summary:
-    {graph_summary}
+    nodes = graph_data.get("nodes", [])
+    edges = graph_data.get("edges", [])
 
-    GNN Output:
-    {gnn_output}
+    prompt = f"""
+    You are a PCB Graph Analysis Expert.
 
-    Vision Analysis:
-    {vision}
+    Analyze PCB connectivity graph:
 
-    OCR Data:
-    {ocr}
-    """
+    Nodes:
+    {nodes}
 
+    Edges:
+    {edges}
 
-# ----------------------------------------
-# 🤖 MAIN GNN INTERPRETATION
-# ----------------------------------------
-def run_gnn_agent(graph_summary, gnn_output, structured=True):
+    Additional Context:
+    {context}
 
-    system_prompt = SYSTEM_PCB_EXPERT
+    Detect:
+    - Broken connections
+    - Missing nets
+    - Abnormal topology
+    - Over-connected nodes
+    - Isolated components
+    - Signal flow issues
 
-    user_prompt = f"""
-    {GNN_PROMPT}
+    Output STRICT JSON:
 
-    Graph:
-    {graph_summary}
-
-    Model Output:
-    {gnn_output}
-
-    {"Return structured JSON." if structured else ""}
-
-    Format:
     {{
-        "detected_issue": "...",
-        "severity": "High/Medium/Low",
-        "explanation": "...",
-        "impact": "...",
-        "fix": "..."
+        "graph_issues": [
+            {{
+                "issue": "...",
+                "severity": "High/Medium/Low",
+                "explanation": "...",
+                "affected_nodes": [...],
+                "fix": "...",
+                "confidence": 0.0-1.0
+            }}
+        ],
+        "summary": "...",
+        "confidence": 0.0-1.0
     }}
     """
 
-    response = invoke_llm(system_prompt, user_prompt)
+    if memory:
+        response = invoke_with_memory(
+            memory,
+            "PCB Graph Expert",
+            prompt
+        )
+    else:
+        response = invoke_llm("PCB Graph Expert", prompt)
 
     if structured:
         return extract_json(response)
@@ -81,159 +94,162 @@ def run_gnn_agent(graph_summary, gnn_output, structured=True):
 
 
 # ----------------------------------------
-# 🔍 ADVANCED GNN ANALYSIS
+# 🔍 ADVANCED GRAPH ANALYSIS
 # ----------------------------------------
-def advanced_gnn_analysis(context):
+def advanced_gnn_analysis(graph_data, memory=None):
 
-    system_prompt = SYSTEM_PCB_EXPERT
+    prompt = f"""
+    Perform deep graph-based PCB analysis:
 
-    user_prompt = f"""
-    Perform advanced analysis using GNN predictions.
+    {graph_data}
 
-    Identify:
-    - Hidden structural issues
-    - Graph connectivity anomalies
-    - Routing inefficiencies
-    - Potential failure points
+    Evaluate:
+    - Graph connectivity quality
+    - Node centrality
+    - Signal paths
+    - Bottlenecks
+    - Redundant connections
 
-    Context:
-    {context}
-
-    Output JSON:
+    Return JSON:
     {{
-        "anomalies": "...",
-        "connectivity_issues": "...",
-        "risk_level": "...",
+        "connectivity_score": "...",
+        "critical_nodes": [...],
+        "bottlenecks": [...],
         "issues": [...],
-        "recommendations": [...]
+        "recommendations": [...],
+        "confidence": 0.0-1.0
     }}
     """
 
-    response = invoke_llm(system_prompt, user_prompt)
+    if memory:
+        response = invoke_with_memory(
+            memory,
+            "Advanced Graph Analyst",
+            prompt
+        )
+    else:
+        response = invoke_llm("Advanced Graph Analyst", prompt)
 
     return extract_json(response)
 
 
 # ----------------------------------------
-# ⚠️ ANOMALY DETECTION MODE
+# 📊 GRAPH SCORE
 # ----------------------------------------
-def anomaly_detection(context):
+def graph_score(graph_data, memory=None):
 
-    system_prompt = SYSTEM_PCB_EXPERT
+    prompt = f"""
+    Evaluate PCB graph quality score (0-100):
 
-    user_prompt = f"""
-    Detect anomalies in PCB graph.
+    {graph_data}
 
-    Context:
-    {context}
+    Consider:
+    - Connectivity
+    - Redundancy
+    - Signal flow
+    - Structural integrity
 
-    Identify:
-    - Unusual connections
-    - Missing links
-    - Overconnected nodes
-
-    Output JSON:
-    {{
-        "anomalies": [
-            {{
-                "node": "...",
-                "issue": "...",
-                "severity": "...",
-                "fix": "..."
-            }}
-        ]
-    }}
+    Return JSON.
     """
 
-    response = invoke_llm(system_prompt, user_prompt)
+    if memory:
+        response = invoke_with_memory(
+            memory,
+            "Graph Evaluator",
+            prompt
+        )
+    else:
+        response = invoke_llm("Graph Evaluator", prompt)
 
     return extract_json(response)
 
 
 # ----------------------------------------
-# 📊 GNN SCORE
+# ⚡ QUICK GRAPH CHECK
 # ----------------------------------------
-def gnn_score(context):
+def quick_graph_check(graph_data):
 
-    system_prompt = SYSTEM_PCB_EXPERT
-
-    user_prompt = f"""
-    Evaluate PCB graph quality.
-
-    Context:
-    {context}
-
-    Provide:
-    - score (0-100)
-    - explanation
-    """
-
-    response = invoke_llm(system_prompt, user_prompt)
-
-    return extract_json(response)
+    return invoke_llm(
+        "Quick Graph Checker",
+        f"List major graph issues:\n{graph_data}"
+    )
 
 
 # ----------------------------------------
-# ⚡ QUICK GNN CHECK
-# ----------------------------------------
-def quick_gnn_check(context):
-
-    system_prompt = "You are a graph-based PCB analysis expert."
-
-    user_prompt = f"""
-    Quickly identify major graph-based issues:
-
-    {context}
-
-    Output short bullet points.
-    """
-
-    return invoke_llm(system_prompt, user_prompt)
-
-
-# ----------------------------------------
-# 🔄 STREAMLIT CACHED VERSION
+# 🔄 CACHE WRAPPER
 # ----------------------------------------
 @st.cache_data(show_spinner=False)
-def cached_gnn_agent(graph_summary, gnn_output):
-    return run_gnn_agent(graph_summary, gnn_output)
+def cached_gnn_agent(graph_data):
+
+    return run_gnn_agent(graph_data)
 
 
 # ----------------------------------------
-# 🧠 PRIORITIZE GNN ISSUES
+# 🧠 PRIORITIZATION
 # ----------------------------------------
-def prioritize_gnn_issues(gnn_output):
+def prioritize_graph_issues(graph_output):
 
-    system_prompt = SYSTEM_PCB_EXPERT
+    prompt = f"""
+    Prioritize graph issues:
 
-    user_prompt = f"""
-    Prioritize GNN-detected issues:
+    {graph_output}
 
-    {gnn_output}
-
-    Rank based on risk and severity.
+    Rank based on:
+    - Connectivity risk
+    - Impact on signal flow
     """
 
-    return invoke_llm(system_prompt, user_prompt)
+    return invoke_llm("Graph Issue Prioritizer", prompt)
 
 
 # ----------------------------------------
-# 🔧 OPTIMIZATION SUGGESTIONS
+# 🔧 FIX SUGGESTION ENGINE
 # ----------------------------------------
-def gnn_optimization(context):
+def suggest_graph_fixes(graph_data, memory=None):
 
-    system_prompt = SYSTEM_PCB_EXPERT
+    prompt = f"""
+    Suggest fixes for PCB connectivity issues:
 
-    user_prompt = f"""
-    Suggest graph-based optimizations.
+    {graph_data}
 
-    Context:
-    {context}
-
-    Recommend:
-    - Better routing structure
-    - Improved connectivity
-    - Reduced complexity
+    Include:
+    - Reconnecting nets
+    - Removing redundant paths
+    - Improving topology
     """
 
-    return invoke_llm(system_prompt, user_prompt)
+    if memory:
+        return invoke_with_memory(
+            memory,
+            "Graph Fix Expert",
+            prompt
+        )
+
+    return invoke_llm("Graph Fix Expert", prompt)
+
+
+# ----------------------------------------
+# 🔬 SIMULATION (AI-BASED)
+# ----------------------------------------
+def simulate_graph_improvement(graph_data, memory=None):
+
+    prompt = f"""
+    Simulate improvements after fixing graph issues:
+
+    {graph_data}
+
+    Predict:
+    - Better connectivity
+    - Improved signal flow
+    - Reduced failure risk
+    """
+
+    if memory:
+        return invoke_with_memory(
+            memory,
+            "Graph Simulation Expert",
+            prompt
+        )
+
+    return invoke_llm("Graph Simulation Expert", prompt)
+    

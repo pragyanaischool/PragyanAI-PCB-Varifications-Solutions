@@ -3,7 +3,6 @@ import re
 import streamlit as st
 
 from ai.llm import invoke_llm
-from ai.prompts import SYSTEM_PCB_EXPERT, SIGNAL_AGENT_PROMPT
 
 
 # ----------------------------------------
@@ -19,61 +18,72 @@ def extract_json(text):
                 return json.loads(match.group())
             except:
                 pass
-    return {"raw_output": text}
+
+    return {
+        "issues": [],
+        "summary": text,
+        "confidence": 0.5,
+        "raw_output": text
+    }
 
 
 # ----------------------------------------
-# 🔌 BUILD CONTEXT
+# 🔌 MAIN SIGNAL AGENT (MEMORY-BASED)
 # ----------------------------------------
-def build_signal_context(vision=None, graph=None, ocr=None, gnn=None):
+def run_signal_agent(memory, structured=True):
 
-    return f"""
-    PCB CONTEXT:
+    context = memory.get_all()
 
-    Vision Analysis:
-    {vision}
+    # Cross-agent inputs
+    power_data = memory.get("power")
+    vision_data = memory.get("vision")
+    graph_data = memory.get("graph")
 
-    Graph Summary:
-    {graph}
+    prompt = f"""
+    You are a senior PCB Signal Integrity Engineer.
 
-    OCR Data:
-    {ocr}
-
-    GNN Output:
-    {gnn}
-    """
-
-
-# ----------------------------------------
-# 🔌 MAIN SIGNAL ANALYSIS
-# ----------------------------------------
-def run_signal_agent(context, structured=True):
-
-    system_prompt = SYSTEM_PCB_EXPERT
-
-    user_prompt = f"""
-    {SIGNAL_AGENT_PROMPT}
+    Analyze signal integrity issues using the full PCB context.
 
     Context:
     {context}
 
-    {"Return structured JSON." if structured else ""}
+    Power Analysis (important for SI):
+    {power_data}
 
-    Format:
+    Vision Observations:
+    {vision_data}
+
+    Graph Structure:
+    {graph_data}
+
+    Focus on:
+    - Crosstalk between traces
+    - Impedance mismatch
+    - Signal reflections
+    - Trace length mismatch
+    - High-speed routing issues
+    - Differential pair imbalance
+    - EMI/EMC risks
+
+    Output STRICT JSON:
+
     {{
         "issues": [
             {{
                 "issue": "...",
                 "severity": "High/Medium/Low",
                 "explanation": "...",
-                "fix": "..."
+                "fix": "...",
+                "location": "optional",
+                "confidence": 0.0-1.0
             }}
         ],
-        "summary": "..."
+        "summary": "...",
+        "confidence": 0.0-1.0
     }}
     """
 
-    response = invoke_llm(system_prompt, user_prompt)
+    response = invoke_llm("PCB Signal Expert", prompt)
 
     if structured:
         return extract_json(response)
@@ -84,59 +94,61 @@ def run_signal_agent(context, structured=True):
 # ----------------------------------------
 # 🔍 ADVANCED SIGNAL ANALYSIS
 # ----------------------------------------
-def advanced_signal_analysis(context):
+def advanced_signal_analysis(memory):
 
-    system_prompt = SYSTEM_PCB_EXPERT
+    context = memory.get_all()
 
-    user_prompt = f"""
+    prompt = f"""
     Perform deep signal integrity analysis.
-
-    Check:
-    - Crosstalk between traces
-    - Impedance mismatch
-    - Signal reflection
-    - Trace length mismatch
-    - High-speed routing issues
-    - Differential pair imbalance
 
     Context:
     {context}
 
-    Output JSON:
+    Evaluate:
+    - Transmission line effects
+    - Differential pair balance
+    - Clock signal integrity
+    - Noise coupling
+    - EMI/EMC vulnerabilities
+
+    Return JSON:
     {{
         "crosstalk": "...",
         "impedance": "...",
         "reflections": "...",
-        "length_matching": "...",
+        "timing": "...",
         "issues": [...],
-        "recommendations": [...]
+        "recommendations": [...],
+        "confidence": 0.0-1.0
     }}
     """
 
-    response = invoke_llm(system_prompt, user_prompt)
+    response = invoke_llm("Advanced Signal Integrity Expert", prompt)
 
     return extract_json(response)
 
 
 # ----------------------------------------
-# 📊 SIGNAL QUALITY SCORE
+# 📊 SIGNAL SCORE
 # ----------------------------------------
-def signal_score(context):
+def signal_score(memory):
 
-    system_prompt = SYSTEM_PCB_EXPERT
+    context = memory.get_all()
 
-    user_prompt = f"""
-    Evaluate signal integrity quality.
+    prompt = f"""
+    Evaluate signal integrity score (0-100):
 
-    Context:
     {context}
 
-    Provide:
-    - score (0-100)
-    - explanation
+    Return JSON:
+    {{
+        "score": 0-100,
+        "explanation": "...",
+        "confidence": 0.0-1.0
+    }}
     """
 
-    response = invoke_llm(system_prompt, user_prompt)
+    response = invoke_llm("Signal Quality Evaluator", prompt)
 
     return extract_json(response)
 
@@ -144,69 +156,79 @@ def signal_score(context):
 # ----------------------------------------
 # ⚡ QUICK SIGNAL CHECK
 # ----------------------------------------
-def quick_signal_check(context):
+def quick_signal_check(memory):
 
-    system_prompt = "You are a PCB signal integrity expert."
+    context = memory.get_all()
 
-    user_prompt = f"""
+    prompt = f"""
     Quickly identify major signal issues:
 
     {context}
 
-    Output short bullet points.
+    Return short bullet points.
     """
 
-    return invoke_llm(system_prompt, user_prompt)
+    return invoke_llm("Signal Quick Checker", prompt)
 
 
 # ----------------------------------------
-# 🔄 STREAMLIT CACHED VERSION
+# 🔄 STREAMLIT CACHE
 # ----------------------------------------
 @st.cache_data(show_spinner=False)
-def cached_signal_agent(context):
-    return run_signal_agent(context)
+def cached_signal_agent(memory_dict):
+    """
+    Cache-friendly wrapper
+    """
+
+    class TempMemory:
+        def __init__(self, data):
+            self.data = data
+
+        def get_all(self):
+            return self.data
+
+        def get(self, key, default=None):
+            return self.data.get(key, default)
+
+    temp_memory = TempMemory(memory_dict)
+
+    return run_signal_agent(temp_memory)
 
 
 # ----------------------------------------
-# 🧠 PRIORITIZE SIGNAL ISSUES
+# 🧠 PRIORITIZATION
 # ----------------------------------------
 def prioritize_signal_issues(signal_output):
 
-    system_prompt = SYSTEM_PCB_EXPERT
-
-    user_prompt = f"""
-    Prioritize signal integrity issues:
+    prompt = f"""
+    Prioritize these signal issues:
 
     {signal_output}
 
-    Rank by severity and impact.
+    Rank by severity, timing impact, and EMI risk.
     """
 
-    return invoke_llm(system_prompt, user_prompt)
+    return invoke_llm("Signal Issue Prioritizer", prompt)
 
 
 # ----------------------------------------
-# 🔬 HIGH-SPEED ANALYSIS MODE
+# 🔧 FIX SUGGESTION ENGINE
 # ----------------------------------------
-def high_speed_signal_analysis(context):
+def suggest_signal_fixes(memory):
 
-    system_prompt = SYSTEM_PCB_EXPERT
+    context = memory.get_all()
 
-    user_prompt = f"""
-    Analyze PCB for high-speed signal issues.
+    prompt = f"""
+    Suggest fixes for signal integrity issues:
 
-    Focus on:
-    - Transmission line effects
-    - Differential pairs
-    - EMI/EMC risks
-    - Clock signal integrity
-
-    Context:
     {context}
 
-    Output structured JSON.
+    Include:
+    - Trace routing improvements
+    - Shielding techniques
+    - Impedance control suggestions
+    - Differential pair corrections
     """
 
-    response = invoke_llm(system_prompt, user_prompt)
-
-    return extract_json(response)
+    return invoke_llm("Signal Fix Expert", prompt)
+    

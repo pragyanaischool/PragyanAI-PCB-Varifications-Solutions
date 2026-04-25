@@ -1,49 +1,42 @@
 import streamlit as st
-from langchain_groq import ChatGroq
-#from langchain.schema import HumanMessage, SystemMessage
-from langchain_core.messages import HumanMessage, SystemMessage
 import json
 import re
+import time
+import requests
 
-# -----------------------------
-# 🔐 LOAD LLM (CACHED)
-# -----------------------------
+from langchain_groq import ChatGroq
+from langchain_core.messages import HumanMessage, SystemMessage
+
+
+# ----------------------------------------
+# 🔐 CONFIG
+# ----------------------------------------
+GROQ_API_KEY = st.secrets.get("GROQ_API_KEY", "")
+HF_API_TOKEN = st.secrets.get("HF_API_TOKEN", "")
+
+HF_MODEL_URL = "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.2"
+
+
+# ----------------------------------------
+# 🧠 LOAD LLM (CACHED)
+# ----------------------------------------
 @st.cache_resource
 def get_llm():
     return ChatGroq(
         model_name="llama-3.3-70b-versatile",
         temperature=0.2,
-        groq_api_key=st.secrets["GROQ_API_KEY"]
+        groq_api_key=GROQ_API_KEY
     )
 
-# -----------------------------
-# 🧠 BASE INVOKE FUNCTION
-# -----------------------------
-def invoke_llm(system_prompt: str, user_prompt: str):
 
-    llm = get_llm()
-
-    try:
-        response = llm.invoke([
-            SystemMessage(content=system_prompt),
-            HumanMessage(content=user_prompt)
-        ])
-
-        return response.content
-
-    except Exception as e:
-        return f"LLM Error: {str(e)}"
-
-
-# -----------------------------
+# ----------------------------------------
 # 🧾 JSON PARSER (ROBUST)
-# -----------------------------
+# ----------------------------------------
 def extract_json(text):
 
     try:
         return json.loads(text)
     except:
-        # Try to extract JSON substring
         match = re.search(r"\{.*\}", text, re.DOTALL)
         if match:
             try:
@@ -51,29 +44,112 @@ def extract_json(text):
             except:
                 pass
 
-    return {
-        "raw_output": text
+    return {"raw_output": text}
+
+
+# ----------------------------------------
+# 🚀 PRIMARY INVOKE (GROQ)
+# ----------------------------------------
+def invoke_llm(system_prompt: str, user_prompt: str, retries=2):
+
+    llm = get_llm()
+
+    for attempt in range(retries):
+        try:
+            response = llm.invoke([
+                SystemMessage(content=system_prompt),
+                HumanMessage(content=user_prompt)
+            ])
+
+            return response.content
+
+        except Exception as e:
+            if attempt < retries - 1:
+                time.sleep(2)
+            else:
+                return f"LLM Error: {str(e)}"
+
+
+# ----------------------------------------
+# 🤖 FALLBACK → HUGGING FACE
+# ----------------------------------------
+def fallback_hf(prompt):
+
+    if not HF_API_TOKEN:
+        return "HF token missing"
+
+    headers = {
+        "Authorization": f"Bearer {HF_API_TOKEN}"
     }
 
+    payload = {"inputs": prompt}
 
-# -----------------------------
-# 🧠 STRUCTURED ANALYSIS CALL
-# -----------------------------
-def structured_analysis(context: str):
+    try:
+        response = requests.post(
+            HF_MODEL_URL,
+            headers=headers,
+            json=payload,
+            timeout=60
+        )
 
-    system_prompt = """
-    You are an expert PCB design engineer.
+        if response.status_code != 200:
+            return f"HF Error: {response.text}"
 
-    Always return structured JSON output.
+        result = response.json()
+
+        if isinstance(result, list):
+            return result[0].get("generated_text", str(result))
+
+        return str(result)
+
+    except Exception as e:
+        return f"HF Exception: {str(e)}"
+
+
+# ----------------------------------------
+# 🧠 SAFE INVOKE (WITH FALLBACK)
+# ----------------------------------------
+def safe_invoke(system_prompt, user_prompt):
+
+    response = invoke_llm(system_prompt, user_prompt)
+
+    if "Error" in str(response):
+        response = fallback_hf(user_prompt)
+
+    return response
+
+
+# ----------------------------------------
+# 🧠 MEMORY-AWARE INVOKE
+# ----------------------------------------
+def invoke_with_memory(memory, system_prompt, task_prompt):
+
+    context = memory.get_context()
+
+    full_prompt = f"""
+    Context:
+    {context}
+
+    Task:
+    {task_prompt}
     """
 
+    return safe_invoke(system_prompt, full_prompt)
+
+
+# ----------------------------------------
+# 🧾 STRUCTURED ANALYSIS (MASTER)
+# ----------------------------------------
+def structured_analysis(context: str):
+
+    system_prompt = "You are an expert PCB design engineer. Return JSON only."
+
     user_prompt = f"""
-    Analyze the PCB system:
+    Analyze PCB:
 
     {context}
 
-    Return JSON format:
-
+    Output JSON:
     {{
         "summary": "...",
         "issues": [
@@ -81,7 +157,6 @@ def structured_analysis(context: str):
                 "category": "Power/Signal/Thermal/Layout",
                 "issue": "...",
                 "severity": "High/Medium/Low",
-                "explanation": "...",
                 "fix": "..."
             }}
         ],
@@ -89,115 +164,120 @@ def structured_analysis(context: str):
     }}
     """
 
-    raw = invoke_llm(system_prompt, user_prompt)
+    raw = safe_invoke(system_prompt, user_prompt)
 
     return extract_json(raw)
 
 
-# -----------------------------
+# ----------------------------------------
 # ⚡ POWER AGENT
-# -----------------------------
-def power_analysis(context):
+# ----------------------------------------
+def power_analysis(memory):
 
-    return invoke_llm(
+    return invoke_with_memory(
+        memory,
         "You are a PCB Power Integrity Expert.",
-        f"""
-        Analyze power-related issues:
-        {context}
-
-        Output:
-        - issue
-        - severity
-        - fix
-        """
+        "Analyze power issues and suggest fixes."
     )
 
 
-# -----------------------------
+# ----------------------------------------
 # 🔌 SIGNAL AGENT
-# -----------------------------
-def signal_analysis(context):
+# ----------------------------------------
+def signal_analysis(memory):
 
-    return invoke_llm(
+    return invoke_with_memory(
+        memory,
         "You are a Signal Integrity Engineer.",
-        f"""
-        Analyze signal routing:
-        {context}
-
-        Detect:
-        - Crosstalk
-        - Reflection
-        - Mismatch
-        """
+        "Analyze signal issues like crosstalk, reflection."
     )
 
 
-# -----------------------------
+# ----------------------------------------
 # 🌡️ THERMAL AGENT
-# -----------------------------
-def thermal_analysis(context):
+# ----------------------------------------
+def thermal_analysis(memory):
 
-    return invoke_llm(
+    return invoke_with_memory(
+        memory,
         "You are a Thermal Engineer.",
-        f"""
-        Analyze heat risks:
-        {context}
-
-        Detect:
-        - hotspots
-        - poor dissipation
-        """
+        "Detect hotspots and cooling issues."
     )
 
 
-# -----------------------------
+# ----------------------------------------
 # 🧩 LAYOUT AGENT
-# -----------------------------
-def layout_analysis(context):
+# ----------------------------------------
+def layout_analysis(memory):
 
-    return invoke_llm(
+    return invoke_with_memory(
+        memory,
         "You are a PCB Layout Expert.",
-        f"""
-        Analyze layout issues:
-        {context}
-
-        Check:
-        - spacing
-        - placement
-        - routing efficiency
-        """
+        "Check spacing, placement, routing."
     )
 
 
-# -----------------------------
-# 🧠 MASTER AGENT
-# -----------------------------
-def run_multi_agent_analysis(context):
+# ----------------------------------------
+# 🔧 TOOL / FIX AGENT
+# ----------------------------------------
+def tool_analysis(memory):
+
+    return invoke_with_memory(
+        memory,
+        "You are a PCB Fix Engineer.",
+        "Suggest actionable fixes."
+    )
+
+
+# ----------------------------------------
+# 🧠 MASTER MULTI-AGENT
+# ----------------------------------------
+def run_multi_agent_analysis(memory):
+
+    power = power_analysis(memory)
+    memory.update("power", power)
+
+    signal = signal_analysis(memory)
+    memory.update("signal", signal)
+
+    thermal = thermal_analysis(memory)
+    memory.update("thermal", thermal)
+
+    layout = layout_analysis(memory)
+    memory.update("layout", layout)
+
+    tools = tool_analysis(memory)
+    memory.update("tools", tools)
+
+    final = structured_analysis(memory.get_context())
 
     return {
-        "power": power_analysis(context),
-        "signal": signal_analysis(context),
-        "thermal": thermal_analysis(context),
-        "layout": layout_analysis(context),
-        "final": structured_analysis(context)
+        "power": power,
+        "signal": signal,
+        "thermal": thermal,
+        "layout": layout,
+        "tools": tools,
+        "final": final
     }
 
 
-# -----------------------------
-# 💬 CHAT MODE (INTERACTIVE)
-# -----------------------------
-def chat_with_pcb(context, user_query):
+# ----------------------------------------
+# 💬 CHAT MODE
+# ----------------------------------------
+def chat_with_pcb(memory, user_query):
 
-    system_prompt = """
-    You are a PCB AI assistant helping engineers debug and improve designs.
-    """
+    return invoke_with_memory(
+        memory,
+        "You are a PCB AI assistant.",
+        f"User question: {user_query}"
+    )
 
-    user_prompt = f"""
-    PCB Context:
-    {context}
 
-    User Question:
-    {user_query}
-    """
+# ----------------------------------------
+# ⚡ STREAMLIT CACHE
+# ----------------------------------------
+@st.cache_data(show_spinner=False)
+def cached_llm(system_prompt, user_prompt):
 
-    return invoke_llm(system_prompt, user_prompt)
+    return safe_invoke(system_prompt, user_prompt)
+    

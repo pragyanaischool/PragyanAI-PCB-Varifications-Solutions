@@ -2,7 +2,7 @@ import json
 import re
 import streamlit as st
 
-from ai.llm import invoke_llm
+from ai.llm import invoke_with_memory
 
 
 # ----------------------------------------
@@ -21,48 +21,54 @@ def extract_json(text):
 
     return {
         "issues": [],
-        "summary": text,
+        "summary": str(text),
         "confidence": 0.5,
         "raw_output": text
     }
 
 
 # ----------------------------------------
-# 🌡️ MAIN THERMAL AGENT (MEMORY-BASED)
+# 🌡️ MAIN THERMAL AGENT (ENHANCED)
 # ----------------------------------------
 def run_thermal_agent(memory, structured=True):
 
     context = memory.get_all()
 
-    # Cross-agent dependencies
-    power_data = memory.get("power")
-    layout_data = memory.get("layout")
-    vision_data = memory.get("vision")
+    # Cross-agent awareness
+    power = memory.get("power")
+    layout = memory.get("layout")
+    signal = memory.get("signal")
+    vision = memory.get("vision")
 
     prompt = f"""
     You are a senior PCB Thermal Engineer.
 
-    Analyze thermal performance using the full PCB context.
+    Analyze thermal behavior using FULL context:
 
-    Context:
+    Full Context:
     {context}
 
-    Power Analysis (heat sources):
-    {power_data}
+    Power Analysis:
+    {power}
 
-    Layout Analysis (placement impact):
-    {layout_data}
+    Layout Analysis:
+    {layout}
 
-    Vision Observations:
-    {vision_data}
+    Signal Analysis:
+    {signal}
+
+    Vision Data:
+    {vision}
 
     Focus on:
-    - Heat concentration zones
-    - Power component clustering
-    - Cooling inefficiencies
-    - Copper area for heat dissipation
-    - Thermal vias presence
-    - Airflow constraints
+    - Heat generation (high-power components)
+    - Hotspot detection
+    - Thermal dissipation efficiency
+    - Copper area for heat spreading
+    - Thermal vias effectiveness
+    - Airflow and cooling paths
+    - Component clustering causing heat buildup
+    - Risk of overheating or failure
 
     Output STRICT JSON:
 
@@ -77,20 +83,16 @@ def run_thermal_agent(memory, structured=True):
                 "confidence": 0.0-1.0
             }}
         ],
-        "hotspots": [
-            {{
-                "region": "...",
-                "reason": "...",
-                "severity": "...",
-                "confidence": 0.0-1.0
-            }}
-        ],
         "summary": "...",
         "confidence": 0.0-1.0
     }}
     """
 
-    response = invoke_llm("PCB Thermal Expert", prompt)
+    response = invoke_with_memory(
+        memory,
+        "PCB Thermal Expert",
+        prompt
+    )
 
     if structured:
         return extract_json(response)
@@ -99,36 +101,35 @@ def run_thermal_agent(memory, structured=True):
 
 
 # ----------------------------------------
-# 🔥 ADVANCED THERMAL ANALYSIS
+# 🔍 ADVANCED THERMAL ANALYSIS
 # ----------------------------------------
 def advanced_thermal_analysis(memory):
 
-    context = memory.get_all()
-
-    prompt = f"""
+    prompt = """
     Perform deep thermal analysis.
 
-    Context:
-    {context}
-
     Evaluate:
-    - Heat distribution uniformity
-    - Thermal resistance paths
-    - Heat dissipation efficiency
-    - Component overheating risk
+    - Heat flow paths
+    - Thermal resistance
+    - Hotspot severity
+    - Cooling efficiency
+    - Risk of thermal runaway
 
     Return JSON:
-    {{
-        "heat_distribution": "...",
+    {
+        "thermal_profile": "...",
         "cooling_efficiency": "...",
-        "risk_zones": "...",
         "issues": [...],
         "recommendations": [...],
         "confidence": 0.0-1.0
-    }}
+    }
     """
 
-    response = invoke_llm("Advanced Thermal Engineer", prompt)
+    response = invoke_with_memory(
+        memory,
+        "Advanced Thermal Engineer",
+        prompt
+    )
 
     return extract_json(response)
 
@@ -138,52 +139,44 @@ def advanced_thermal_analysis(memory):
 # ----------------------------------------
 def thermal_score(memory):
 
-    context = memory.get_all()
+    prompt = """
+    Evaluate thermal performance score (0-100).
 
-    prompt = f"""
-    Evaluate thermal performance score (0-100):
+    Consider:
+    - Heat distribution
+    - Cooling
+    - Component placement
+    - Thermal risks
 
-    {context}
-
-    Return JSON:
-    {{
-        "score": 0-100,
-        "explanation": "...",
-        "confidence": 0.0-1.0
-    }}
+    Return JSON.
     """
 
-    response = invoke_llm("Thermal Evaluator", prompt)
+    response = invoke_with_memory(
+        memory,
+        "Thermal Evaluator",
+        prompt
+    )
 
     return extract_json(response)
 
 
 # ----------------------------------------
-# ⚡ QUICK THERMAL CHECK
+# ⚡ QUICK CHECK
 # ----------------------------------------
 def quick_thermal_check(memory):
 
-    context = memory.get_all()
-
-    prompt = f"""
-    Quickly identify thermal risks:
-
-    {context}
-
-    Return short bullet points.
-    """
-
-    return invoke_llm("Thermal Quick Checker", prompt)
+    return invoke_with_memory(
+        memory,
+        "Quick Thermal Checker",
+        "List top 3 thermal issues."
+    )
 
 
 # ----------------------------------------
-# 🔄 STREAMLIT CACHE
+# 🔄 CACHE WRAPPER
 # ----------------------------------------
 @st.cache_data(show_spinner=False)
 def cached_thermal_agent(memory_dict):
-    """
-    Cache-friendly wrapper
-    """
 
     class TempMemory:
         def __init__(self, data):
@@ -201,7 +194,7 @@ def cached_thermal_agent(memory_dict):
 
 
 # ----------------------------------------
-# 🧠 PRIORITIZE THERMAL ISSUES
+# 🧠 PRIORITIZATION
 # ----------------------------------------
 def prioritize_thermal_issues(thermal_output):
 
@@ -210,31 +203,56 @@ def prioritize_thermal_issues(thermal_output):
 
     {thermal_output}
 
-    Rank by overheating risk and failure probability.
+    Rank based on:
+    - Overheating risk
+    - Failure probability
+    - Impact on performance
     """
 
+    from ai.llm import invoke_llm
     return invoke_llm("Thermal Issue Prioritizer", prompt)
 
 
 # ----------------------------------------
-# 🔧 COOLING STRATEGY ENGINE
+# 🔧 FIX SUGGESTION ENGINE
 # ----------------------------------------
-def suggest_cooling_strategies(memory):
+def suggest_thermal_fixes(memory):
 
-    context = memory.get_all()
-
-    prompt = f"""
-    Suggest cooling improvements:
-
-    {context}
+    prompt = """
+    Suggest thermal improvements:
 
     Include:
-    - Heat sinks
-    - Thermal vias
-    - Copper pours
-    - Component relocation
-    - Airflow optimization
+    - Heat sink usage
+    - Thermal vias addition
+    - Copper area increase
+    - Component repositioning
+    - Cooling strategies
     """
 
-    return invoke_llm("Thermal Optimization Expert", prompt)
+    return invoke_with_memory(
+        memory,
+        "Thermal Fix Expert",
+        prompt
+    )
+
+
+# ----------------------------------------
+# 🔬 THERMAL SIMULATION (AI-BASED)
+# ----------------------------------------
+def simulate_thermal_improvement(memory):
+
+    prompt = """
+    Simulate improvements after thermal fixes:
+
+    Predict:
+    - Reduced hotspot temperature
+    - Better heat distribution
+    - Improved reliability
+    """
+
+    return invoke_with_memory(
+        memory,
+        "Thermal Simulation Expert",
+        prompt
+    )
     

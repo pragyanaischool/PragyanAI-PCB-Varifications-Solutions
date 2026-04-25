@@ -1,11 +1,14 @@
-"""
-Rule Engine Service (DRC-like checks)
+# services/rules.py
 
-Provides:
-- Basic electrical sanity checks
-- Connectivity validation
-- Heuristic PCB design rules
-- Severity tagging
+"""
+Enhanced Rule Engine (PCB DRC + Graph Intelligence)
+
+Checks:
+✔ Connectivity
+✔ Reliability
+✔ Congestion
+✔ Redundancy
+✔ Structural issues
 """
 
 from typing import List, Dict
@@ -17,6 +20,15 @@ import networkx as nx
 # ----------------------------------------
 def run_rules(graph: nx.Graph) -> List[Dict]:
 
+    if graph is None or graph.number_of_nodes() == 0:
+        return [{
+            "category": "Input",
+            "issue": "Empty Graph",
+            "severity": "High",
+            "explanation": "No PCB data available",
+            "fix": "Check input pipeline"
+        }]
+
     issues = []
 
     issues += check_floating_components(graph)
@@ -24,6 +36,9 @@ def run_rules(graph: nx.Graph) -> List[Dict]:
     issues += check_isolated_clusters(graph)
     issues += check_critical_nodes(graph)
     issues += check_sparse_connectivity(graph)
+    issues += check_bridge_edges(graph)
+    issues += check_cycle_loops(graph)
+    issues += check_dense_regions(graph)
 
     return issues
 
@@ -42,15 +57,15 @@ def check_floating_components(graph: nx.Graph):
                 "issue": "Floating Component",
                 "node": node,
                 "severity": "High",
-                "explanation": "Component is not connected to any net",
-                "fix": "Ensure proper net connection"
+                "explanation": "Component not connected",
+                "fix": "Check net connections"
             })
 
     return issues
 
 
 # ----------------------------------------
-# 🔥 HIGH DEGREE NODES (POSSIBLE SHORT / OVERLOAD)
+# 🔥 HIGH DEGREE NODES
 # ----------------------------------------
 def check_high_degree_nodes(graph: nx.Graph, threshold: int = 6):
 
@@ -63,8 +78,8 @@ def check_high_degree_nodes(graph: nx.Graph, threshold: int = 6):
                 "issue": "Overconnected Node",
                 "node": node,
                 "severity": "Medium",
-                "explanation": f"Node has {degree} connections (threshold {threshold})",
-                "fix": "Verify if connections are correct or unintended shorts"
+                "explanation": f"{degree} connections exceed threshold",
+                "fix": "Check for short circuits"
             })
 
     return issues
@@ -75,42 +90,37 @@ def check_high_degree_nodes(graph: nx.Graph, threshold: int = 6):
 # ----------------------------------------
 def check_isolated_clusters(graph: nx.Graph):
 
-    issues = []
-
     clusters = list(nx.connected_components(graph))
 
     if len(clusters) > 1:
-        issues.append({
+        return [{
             "category": "Connectivity",
             "issue": "Disconnected Clusters",
             "severity": "High",
-            "explanation": f"PCB has {len(clusters)} disconnected sub-networks",
-            "fix": "Ensure all required nets are properly connected"
-        })
+            "explanation": f"{len(clusters)} isolated networks",
+            "fix": "Ensure complete routing"
+        }]
 
-    return issues
+    return []
 
 
 # ----------------------------------------
-# ⚡ CRITICAL NODES (CUT VERTICES)
+# ⚡ CRITICAL NODES
 # ----------------------------------------
 def check_critical_nodes(graph: nx.Graph):
 
     issues = []
 
     try:
-        critical = list(nx.articulation_points(graph))
-
-        for node in critical:
+        for node in nx.articulation_points(graph):
             issues.append({
                 "category": "Reliability",
                 "issue": "Critical Node",
                 "node": node,
                 "severity": "Medium",
-                "explanation": "Failure of this node disconnects circuit",
-                "fix": "Add redundancy or alternate routing"
+                "explanation": "Single point of failure",
+                "fix": "Add redundancy"
             })
-
     except:
         pass
 
@@ -122,46 +132,104 @@ def check_critical_nodes(graph: nx.Graph):
 # ----------------------------------------
 def check_sparse_connectivity(graph: nx.Graph):
 
-    issues = []
-
     if graph.number_of_nodes() == 0:
-        return issues
+        return []
 
     avg_degree = sum(dict(graph.degree()).values()) / graph.number_of_nodes()
 
     if avg_degree < 1.5:
-        issues.append({
+        return [{
             "category": "Design",
             "issue": "Sparse Connectivity",
             "severity": "Medium",
-            "explanation": f"Average degree is low ({avg_degree:.2f})",
-            "fix": "Verify missing connections or incomplete routing"
+            "explanation": f"Low avg degree: {avg_degree:.2f}",
+            "fix": "Check missing routes"
+        }]
+
+    return []
+
+
+# ----------------------------------------
+# 🔗 BRIDGE EDGES (CRITICAL LINKS)
+# ----------------------------------------
+def check_bridge_edges(graph: nx.Graph):
+
+    issues = []
+
+    try:
+        bridges = list(nx.bridges(graph))
+
+        for edge in bridges:
+            issues.append({
+                "category": "Reliability",
+                "issue": "Critical Connection",
+                "edge": edge,
+                "severity": "Medium",
+                "explanation": "Edge removal disconnects graph",
+                "fix": "Add alternate path"
+            })
+    except:
+        pass
+
+    return issues
+
+
+# ----------------------------------------
+# 🔁 CYCLE DETECTION
+# ----------------------------------------
+def check_cycle_loops(graph: nx.Graph):
+
+    issues = []
+
+    try:
+        cycles = list(nx.cycle_basis(graph))
+
+        if len(cycles) > 10:
+            issues.append({
+                "category": "Design",
+                "issue": "Excessive Loops",
+                "severity": "Low",
+                "explanation": f"{len(cycles)} loops detected",
+                "fix": "Optimize routing"
+            })
+    except:
+        pass
+
+    return issues
+
+
+# ----------------------------------------
+# 🔥 DENSE REGION CHECK
+# ----------------------------------------
+def check_dense_regions(graph: nx.Graph):
+
+    issues = []
+
+    density = nx.density(graph)
+
+    if density > 0.3:
+        issues.append({
+            "category": "Layout",
+            "issue": "High Density Region",
+            "severity": "Medium",
+            "explanation": f"Graph density {density:.2f}",
+            "fix": "Reduce congestion"
         })
 
     return issues
 
 
 # ----------------------------------------
-# 🧠 RULE SUMMARY
+# 📊 RULE SUMMARY
 # ----------------------------------------
 def summarize_rules(issues: List[Dict]):
 
-    summary = {
-        "total_issues": len(issues),
-        "high": 0,
-        "medium": 0,
-        "low": 0
-    }
+    summary = {"total": len(issues), "high": 0, "medium": 0, "low": 0}
 
-    for issue in issues:
-        severity = issue.get("severity", "").lower()
-
-        if severity == "high":
-            summary["high"] += 1
-        elif severity == "medium":
-            summary["medium"] += 1
-        elif severity == "low":
-            summary["low"] += 1
+    for i in issues:
+        sev = i.get("severity", "").lower()
+        if sev in summary:
+            summary[sev] += 1
 
     return summary
 
@@ -173,14 +241,14 @@ def rule_score(issues: List[Dict]):
 
     score = 100
 
-    for issue in issues:
-        severity = issue.get("severity", "").lower()
+    for i in issues:
+        sev = i.get("severity", "").lower()
 
-        if severity == "high":
-            score -= 10
-        elif severity == "medium":
-            score -= 5
-        elif severity == "low":
-            score -= 2
+        if sev == "high":
+            score -= 12
+        elif sev == "medium":
+            score -= 6
+        elif sev == "low":
+            score -= 3
 
     return max(score, 0)

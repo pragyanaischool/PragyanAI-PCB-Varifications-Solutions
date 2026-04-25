@@ -2,7 +2,8 @@ import json
 import re
 import streamlit as st
 
-from ai.llm import invoke_llm
+from ai.llm import invoke_with_memory, invoke_llm
+
 
 # ----------------------------------------
 # 🧾 JSON PARSER (ROBUST)
@@ -20,24 +21,26 @@ def extract_json(text):
 
     return {
         "actions": [],
-        "summary": text,
+        "summary": str(text),
         "confidence": 0.5,
         "raw_output": text
     }
 
 
 # ----------------------------------------
-# 🔧 TOOL DEFINITIONS (CAN EXPAND)
+# 🔧 AVAILABLE TOOL SET
 # ----------------------------------------
 AVAILABLE_TOOLS = [
     "Fix trace width",
-    "Suggest rerouting",
+    "Reroute signal traces",
     "Add decoupling capacitor",
     "Improve grounding",
     "Add thermal vias",
     "Optimize component placement",
     "Reduce EMI",
-    "Improve signal routing"
+    "Improve differential pair routing",
+    "Increase copper area",
+    "Add shielding"
 ]
 
 
@@ -48,26 +51,44 @@ def run_tool_agent(memory, structured=True):
 
     context = memory.get_all()
 
-    # Collect all issues from agents
+    # Cross-agent outputs
     power = memory.get("power")
     signal = memory.get("signal")
     thermal = memory.get("thermal")
     layout = memory.get("layout")
+    vision = memory.get("vision")
 
     prompt = f"""
-    You are an expert PCB Design Fix Assistant.
+    You are an expert PCB Design Fix Engineer.
 
-    Based on the complete PCB analysis:
+    Based on full PCB analysis:
 
+    Full Context:
     {context}
 
-    Available tools:
+    Power Issues:
+    {power}
+
+    Signal Issues:
+    {signal}
+
+    Thermal Issues:
+    {thermal}
+
+    Layout Issues:
+    {layout}
+
+    Vision Insights:
+    {vision}
+
+    Available Tools:
     {AVAILABLE_TOOLS}
 
-    Your job:
+    Your task:
     - Identify critical issues
     - Map each issue to a specific tool/action
     - Suggest step-by-step fixes
+    - Prioritize actions
 
     Output STRICT JSON:
 
@@ -87,7 +108,11 @@ def run_tool_agent(memory, structured=True):
     }}
     """
 
-    response = invoke_llm("PCB Fix Engineer", prompt)
+    response = invoke_with_memory(
+        memory,
+        "PCB Fix Engineer",
+        prompt
+    )
 
     if structured:
         return extract_json(response)
@@ -100,17 +125,11 @@ def run_tool_agent(memory, structured=True):
 # ----------------------------------------
 def quick_fixes(memory):
 
-    context = memory.get_all()
-
-    prompt = f"""
-    Quickly suggest top 5 PCB fixes:
-
-    {context}
-
-    Keep it short and actionable.
-    """
-
-    return invoke_llm("Quick PCB Fix Assistant", prompt)
+    return invoke_with_memory(
+        memory,
+        "Quick PCB Fix Assistant",
+        "Suggest top 5 quick fixes."
+    )
 
 
 # ----------------------------------------
@@ -118,12 +137,8 @@ def quick_fixes(memory):
 # ----------------------------------------
 def prioritized_action_plan(memory):
 
-    context = memory.get_all()
-
-    prompt = f"""
-    Create a prioritized PCB improvement plan:
-
-    {context}
+    prompt = """
+    Create prioritized PCB improvement plan.
 
     Order by:
     - Risk
@@ -131,11 +146,15 @@ def prioritized_action_plan(memory):
     - Ease of implementation
     """
 
-    return invoke_llm("PCB Optimization Planner", prompt)
+    return invoke_with_memory(
+        memory,
+        "PCB Optimization Planner",
+        prompt
+    )
 
 
 # ----------------------------------------
-# 🔄 STREAMLIT CACHE
+# 🔄 CACHE WRAPPER
 # ----------------------------------------
 @st.cache_data(show_spinner=False)
 def cached_tool_agent(memory_dict):
@@ -156,21 +175,63 @@ def cached_tool_agent(memory_dict):
 
 
 # ----------------------------------------
-# 🧠 AUTO-FIX SIMULATION (OPTIONAL)
+# 🧠 PRIORITIZATION ENGINE
 # ----------------------------------------
-def simulate_fix(memory):
-
-    context = memory.get_all()
+def prioritize_actions(tool_output):
 
     prompt = f"""
-    Simulate improvements after applying fixes:
+    Prioritize these PCB fixes:
 
-    {context}
+    {tool_output}
 
-    Predict:
-    - Improvement in signal integrity
-    - Reduction in thermal issues
-    - Overall score improvement
+    Rank based on:
+    - Severity
+    - System impact
+    - Ease of fix
     """
 
-    return invoke_llm("PCB Simulation Expert", prompt)
+    return invoke_llm("Fix Prioritizer", prompt)
+
+
+# ----------------------------------------
+# 🔬 SIMULATION (IMPACT PREDICTION)
+# ----------------------------------------
+def simulate_fix_impact(memory):
+
+    prompt = """
+    Simulate improvements after applying fixes.
+
+    Predict:
+    - Signal improvement
+    - Power stability improvement
+    - Thermal reduction
+    - Overall system score increase
+    """
+
+    return invoke_with_memory(
+        memory,
+        "PCB Simulation Expert",
+        prompt
+    )
+
+
+# ----------------------------------------
+# 🔧 EXECUTION PLAN (STEP-BY-STEP)
+# ----------------------------------------
+def generate_execution_steps(memory):
+
+    prompt = """
+    Generate step-by-step execution plan to fix PCB issues.
+
+    Include:
+    - Order of operations
+    - Dependencies between fixes
+    - Estimated effort
+    """
+
+    return invoke_with_memory(
+        memory,
+        "PCB Execution Planner",
+        prompt
+    )
+    

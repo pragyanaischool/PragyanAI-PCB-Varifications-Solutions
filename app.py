@@ -1,19 +1,22 @@
 import streamlit as st
 from PIL import Image
-import tempfile
 import traceback
 
 # Services
 from services.parser import parse_pcb
 from services.graph import build_graph, graph_summary
 from services.rules import run_rules
+from services.report import build_full_system_report, report_to_markdown
 
-# AI Orchestrator
+# AI
 from ai.orchestrator import run_full_analysis
+
+# UI
+from ui.visualization import show_visualization
 
 # Utils
 from utils.file import save_uploaded_file, safe_delete
-from utils.cache import st_cache_data_wrapper
+
 
 # ----------------------------------------
 # 🎨 PAGE CONFIG
@@ -28,12 +31,14 @@ st.set_page_config(
 # 🧠 HEADER
 # ----------------------------------------
 st.title("⚡ PragyanAI PCB Copilot")
-st.caption("Multi-Agent AI for PCB Analysis (Vision + Graph + LLM + GNN)")
+st.caption("Multi-Agent AI for PCB Analysis (Vision + Graph + GNN + LLM)")
+
 
 # ----------------------------------------
-# 📤 SIDEBAR SETTINGS
+# ⚙️ SIDEBAR
 # ----------------------------------------
 with st.sidebar:
+
     st.header("⚙️ Settings")
 
     run_mode = st.selectbox(
@@ -41,16 +46,19 @@ with st.sidebar:
         ["Full (Accurate)", "Quick (Fast)"]
     )
 
-    show_raw = st.checkbox("Show Raw Outputs", value=False)
+    show_debug = st.checkbox("Show Debug Info", value=False)
     cleanup_files_flag = st.checkbox("Cleanup temp files", value=True)
 
     st.markdown("---")
-    st.markdown("### ℹ️ Info")
+
+    st.markdown("### ℹ️ Features")
     st.markdown("""
-    - Multi-Agent AI  
-    - Power / Signal / Thermal / Layout  
-    - Vision + OCR + Graph + GNN  
+    - Vision (YOLO + OCR + Segmentation)
+    - Graph + GNN
+    - Multi-Agent AI
+    - Fix Recommendation Engine
     """)
+
 
 # ----------------------------------------
 # 📤 FILE UPLOAD
@@ -59,37 +67,35 @@ col1, col2 = st.columns([2, 1])
 
 with col1:
     pcb_file = st.file_uploader(
-        "Upload PCB Image or Netlist",
-        type=["png", "jpg", "jpeg", "txt", "net", "netlist"]
+        "Upload PCB Image",
+        type=["png", "jpg", "jpeg"]
     )
 
 with col2:
-    st.markdown("### 🧩 Supported Inputs")
+    st.markdown("### 🧩 Supported")
     st.markdown("""
     - PCB Images  
-    - Netlist Files  
+    - (Netlist support coming)  
     """)
 
+
 # ----------------------------------------
-# 🖼️ PREVIEW
+# 🖼️ IMAGE PREVIEW
 # ----------------------------------------
 if pcb_file:
+    image = Image.open(pcb_file)
+    st.image(image, caption="PCB Preview", use_container_width=True)
 
-    file_type = pcb_file.type
-
-    if "image" in file_type:
-        image = Image.open(pcb_file)
-        st.image(image, caption="PCB Preview", use_container_width=True)
 
 # ----------------------------------------
-# 🚀 ANALYSIS BUTTON
+# 🚀 RUN ANALYSIS
 # ----------------------------------------
 if pcb_file:
 
     if st.button("🚀 Run AI Analysis"):
 
         try:
-            with st.spinner("Running full AI pipeline..."):
+            with st.spinner("Running AI pipeline..."):
 
                 # ----------------------------------------
                 # 💾 SAVE FILE
@@ -97,7 +103,7 @@ if pcb_file:
                 file_path = save_uploaded_file(pcb_file)
 
                 # ----------------------------------------
-                # 🧠 PARSER
+                # 🧠 PARSE
                 # ----------------------------------------
                 pcb_data = parse_pcb(file_path)
 
@@ -113,84 +119,102 @@ if pcb_file:
                 rule_issues = run_rules(graph)
 
                 # ----------------------------------------
-                # 🧠 MOCK (Replace with real later)
-                # ----------------------------------------
-                gnn_output = "Graph anomaly detected near power node"
-                ocr_text = pcb_data.get("raw_text", "U1 R1 C1 5V GND")
-
-                # ----------------------------------------
                 # 🤖 AI ORCHESTRATOR
                 # ----------------------------------------
                 result = run_full_analysis(
                     image_path=file_path,
                     graph_summary=g_summary,
-                    gnn_output=gnn_output,
-                    ocr_text=ocr_text
+                    gnn_output=None,
+                    ocr_text=None
                 )
+
+                results = result["results"]
+
+                # ----------------------------------------
+                # 📊 REPORT
+                # ----------------------------------------
+                report = build_full_system_report(results)
 
             st.success("✅ Analysis Completed")
 
             # ----------------------------------------
-            # 📊 DISPLAY RESULTS
+            # 📊 TABS
             # ----------------------------------------
-            tab1, tab2, tab3, tab4 = st.tabs([
+            tab1, tab2, tab3, tab4, tab5 = st.tabs([
                 "🧠 Final Report",
+                "🖼️ Visual Debugger",
                 "⚡ Domain Insights",
                 "📊 Graph & Rules",
-                "🔍 Raw Data"
+                "🔍 Debug"
             ])
 
             # ----------------------------------------
             # 🧠 FINAL REPORT
             # ----------------------------------------
             with tab1:
-                final = result.get("final", {})
 
-                st.metric("PCB Score", final.get("score", 0))
+                st.metric("PCB Score", report.get("score", 0))
 
                 st.subheader("📋 Summary")
-                st.write(final.get("summary", ""))
+                st.write(report.get("summary", ""))
 
                 st.subheader("⚠️ Issues")
-                st.json(final.get("issues", []))
+                st.json(report.get("issues", []))
+
+                st.subheader("🔧 Recommended Actions")
+                st.json(report.get("recommended_actions", []))
+
+                st.download_button(
+                    "📄 Download Report",
+                    report_to_markdown(report),
+                    file_name="pcb_report.md"
+                )
+
+            # ----------------------------------------
+            # 🖼️ VISUAL DEBUGGER
+            # ----------------------------------------
+            with tab2:
+
+                show_visualization(file_path, results)
 
             # ----------------------------------------
             # ⚡ DOMAIN AGENTS
             # ----------------------------------------
-            with tab2:
+            with tab3:
 
-                cols = st.columns(2)
+                colA, colB = st.columns(2)
 
-                with cols[0]:
+                with colA:
                     st.subheader("⚡ Power")
-                    st.write(result.get("power"))
+                    st.json(results.get("power"))
 
                     st.subheader("🔌 Signal")
-                    st.write(result.get("signal"))
+                    st.json(results.get("signal"))
 
-                with cols[1]:
+                with colB:
                     st.subheader("🌡️ Thermal")
-                    st.write(result.get("thermal"))
+                    st.json(results.get("thermal"))
 
                     st.subheader("🧩 Layout")
-                    st.write(result.get("layout"))
+                    st.json(results.get("layout"))
 
             # ----------------------------------------
             # 📊 GRAPH + RULES
             # ----------------------------------------
-            with tab3:
+            with tab4:
 
                 st.subheader("Graph Summary")
-                st.write(g_summary)
+                st.json(g_summary)
 
                 st.subheader("Rule Issues")
                 st.json(rule_issues)
 
             # ----------------------------------------
-            # 🔍 RAW OUTPUTS
+            # 🔍 DEBUG
             # ----------------------------------------
-            if show_raw:
-                with tab4:
+            if show_debug:
+                with tab5:
+                    st.subheader("Full System Output")
                     st.json(result)
 
             # ----------------------------------------
@@ -200,12 +224,16 @@ if pcb_file:
                 safe_delete(file_path)
 
         except Exception as e:
+
             st.error("❌ Error during processing")
+
             st.text(str(e))
             st.text(traceback.format_exc())
+
 
 # ----------------------------------------
 # 🧭 FOOTER
 # ----------------------------------------
 st.markdown("---")
 st.markdown("⚡ PragyanAI | PCB Copilot | Multi-Agent AI System")
+

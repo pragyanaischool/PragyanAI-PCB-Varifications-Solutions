@@ -1,19 +1,13 @@
+# ai/memory.py
+
 """
 Shared Memory System for Multi-Agent PCB AI
-
-Stores:
-- Vision output
-- OCR data
-- Graph structure
-- GNN results
-- Agent outputs (power, signal, thermal, layout)
-- Tool suggestions
 
 Acts as:
 🧠 Central brain for all agents
 """
 
-from typing import Any, Dict
+from typing import Any, Dict, List
 import copy
 
 
@@ -24,6 +18,8 @@ class PCBMemory:
 
     def __init__(self):
         self.data: Dict[str, Any] = {}
+        self.history: List[Dict] = []   # 🧠 reasoning trace
+
 
     # ----------------------------------------
     # ➕ ADD / UPDATE DATA
@@ -35,12 +31,21 @@ class PCBMemory:
 
         self.data[key] = value
 
+        # 🔥 Track history (critical for debugging AI)
+        self.history.append({
+            "step": len(self.history),
+            "key": key,
+            "type": type(value).__name__
+        })
+
+
     # ----------------------------------------
     # 📥 GET VALUE
     # ----------------------------------------
     def get(self, key: str, default=None):
 
         return self.data.get(key, default)
+
 
     # ----------------------------------------
     # 📦 GET FULL MEMORY
@@ -49,16 +54,22 @@ class PCBMemory:
 
         return self.data
 
+
     # ----------------------------------------
-    # 🔄 MERGE DICTIONARY INTO MEMORY
+    # 🔄 SAFE MERGE
     # ----------------------------------------
-    def merge(self, new_data: Dict[str, Any]):
+    def merge(self, new_data: Dict[str, Any], overwrite=True):
 
         if not isinstance(new_data, dict):
             return
 
         for k, v in new_data.items():
+
+            if not overwrite and k in self.data:
+                continue
+
             self.data[k] = v
+
 
     # ----------------------------------------
     # ❌ REMOVE KEY
@@ -68,49 +79,108 @@ class PCBMemory:
         if key in self.data:
             del self.data[key]
 
+
     # ----------------------------------------
     # 🧹 CLEAR MEMORY
     # ----------------------------------------
     def clear(self):
 
         self.data = {}
+        self.history = []
+
 
     # ----------------------------------------
-    # 🧠 GET CONTEXT (FOR LLM)
+    # 🧠 FULL CONTEXT (FOR LLM)
     # ----------------------------------------
-    def get_context(self) -> str:
+    def get_context(self, exclude_keys=None) -> str:
 
-        context_str = ""
+        exclude_keys = exclude_keys or []
+
+        context_parts = []
 
         for key, value in self.data.items():
-            context_str += f"\n--- {key.upper()} ---\n{value}\n"
 
-        return context_str
+            if key in exclude_keys:
+                continue
+
+            context_parts.append(f"{key.upper()}:\n{value}")
+
+        return "\n\n".join(context_parts)
+
 
     # ----------------------------------------
-    # 🔍 GET SUMMARY (LIGHTWEIGHT)
+    # 🧠 LIMITED CONTEXT (TOKEN SAFE)
+    # ----------------------------------------
+    def get_limited_context(self, max_chars=4000):
+
+        context = self.get_context()
+
+        if len(context) > max_chars:
+            return context[:max_chars]
+
+        return context
+
+
+    # ----------------------------------------
+    # 🎯 AGENT-SPECIFIC CONTEXT
+    # ----------------------------------------
+    def get_agent_context(self, agent_name: str):
+
+        """
+        Give each agent relevant context only
+        """
+
+        base = self.get_context(exclude_keys=["tools", "final"])
+
+        agent_specific = f"\n\nCURRENT_AGENT: {agent_name.upper()}"
+
+        return base + agent_specific
+
+
+    # ----------------------------------------
+    # 📊 SUMMARY
     # ----------------------------------------
     def summary(self):
 
         return {
             "keys": list(self.data.keys()),
-            "num_items": len(self.data)
+            "num_items": len(self.data),
+            "history_steps": len(self.history)
         }
 
+
     # ----------------------------------------
-    # 📄 SERIALIZE (FOR CACHE / STORAGE)
+    # 📄 SERIALIZE
     # ----------------------------------------
     def to_dict(self):
 
         return copy.deepcopy(self.data)
 
+
     # ----------------------------------------
-    # 📥 LOAD FROM DICT
+    # 📥 LOAD
     # ----------------------------------------
     def from_dict(self, data: Dict[str, Any]):
 
         if isinstance(data, dict):
             self.data = copy.deepcopy(data)
+
+
+    # ----------------------------------------
+    # 🧠 HISTORY (VERY IMPORTANT)
+    # ----------------------------------------
+    def get_history(self):
+
+        return self.history
+
+
+    # ----------------------------------------
+    # 🔍 FILTER KEYS
+    # ----------------------------------------
+    def filter(self, keys: List[str]):
+
+        return {k: self.data.get(k) for k in keys if k in self.data}
+
 
     # ----------------------------------------
     # 🧪 DEBUG PRINT
@@ -118,8 +188,14 @@ class PCBMemory:
     def debug(self):
 
         print("🧠 MEMORY STATE")
+
         for k, v in self.data.items():
             print(f"{k}: {type(v)}")
+
+        print("\n📜 HISTORY:")
+        for step in self.history:
+            print(step)
+
 
     # ----------------------------------------
     # 🔁 SAFE COPY
@@ -130,12 +206,13 @@ class PCBMemory:
         new_mem.from_dict(self.data)
         return new_mem
 
+
     # ----------------------------------------
     # 🧠 REPRESENTATION
     # ----------------------------------------
     def __repr__(self):
 
-        return f"PCBMemory(keys={list(self.data.keys())})"
+        return f"PCBMemory(keys={list(self.data.keys())}, steps={len(self.history)})"
 
 
 # ----------------------------------------

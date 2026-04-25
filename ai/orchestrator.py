@@ -1,5 +1,7 @@
 import streamlit as st
 
+from ai.memory import PCBMemory
+
 # Agents
 from ai.agents.vision_agent import run_vision_agent
 from ai.agents.power_agent import run_power_agent
@@ -9,93 +11,101 @@ from ai.agents.layout_agent import run_layout_agent
 from ai.agents.gnn_agent import run_gnn_agent
 from ai.agents.ocr_agent import run_ocr_agent
 
-from ai.llm import structured_analysis
+from ai.llm import invoke_llm
 
 
 # ----------------------------------------
-# 🧠 BUILD CONTEXT
-# ----------------------------------------
-def build_context(vision, graph, ocr, gnn):
-
-    return f"""
-    PCB CONTEXT:
-
-    Vision Analysis:
-    {vision}
-
-    Graph Summary:
-    {graph}
-
-    OCR Analysis:
-    {ocr}
-
-    GNN Output:
-    {gnn}
-    """
-
-
-# ----------------------------------------
-# 🚀 MAIN ORCHESTRATOR
+# 🚀 MULTI-AGENT PIPELINE
 # ----------------------------------------
 def run_full_analysis(image_path, graph_summary, gnn_output, ocr_text):
 
-    # Step 1: Vision
-    vision_result = run_vision_agent(image_path)
+    memory = PCBMemory()
 
-    # Step 2: OCR
-    ocr_result = run_ocr_agent(ocr_text)
+    # ----------------------------------------
+    # 👁️ Vision Agent
+    # ----------------------------------------
+    vision = run_vision_agent(image_path)
+    memory.update("vision", vision)
 
-    # Step 3: Context
-    context = build_context(
-        vision=vision_result,
-        graph=graph_summary,
-        ocr=ocr_result,
-        gnn=gnn_output
-    )
+    # ----------------------------------------
+    # 🔤 OCR Agent
+    # ----------------------------------------
+    ocr = run_ocr_agent(ocr_text)
+    memory.update("ocr", ocr)
 
-    # Step 4: Domain Agents
-    power = run_power_agent(context)
-    signal = run_signal_agent(context)
-    thermal = run_thermal_agent(context)
-    layout = run_layout_agent(context)
+    # ----------------------------------------
+    # 🔗 Graph
+    # ----------------------------------------
+    memory.update("graph", graph_summary)
+
+    # ----------------------------------------
+    # 🤖 GNN Agent
+    # ----------------------------------------
     gnn = run_gnn_agent(graph_summary, gnn_output)
+    memory.update("gnn", gnn)
 
-    # Step 5: Final Consolidation
-    final_report = structured_analysis(context)
+    # ----------------------------------------
+    # ⚡ Power Agent
+    # ----------------------------------------
+    power = run_power_agent(memory)
+    memory.update("power", power)
+
+    # ----------------------------------------
+    # 🔌 Signal Agent (uses power)
+    # ----------------------------------------
+    signal = run_signal_agent(memory)
+    memory.update("signal", signal)
+
+    # ----------------------------------------
+    # 🌡️ Thermal Agent (uses power + layout)
+    # ----------------------------------------
+    thermal = run_thermal_agent(memory)
+    memory.update("thermal", thermal)
+
+    # ----------------------------------------
+    # 🧩 Layout Agent
+    # ----------------------------------------
+    layout = run_layout_agent(memory)
+    memory.update("layout", layout)
+
+    # ----------------------------------------
+    # 🧠 FINAL META AGENT
+    # ----------------------------------------
+    final = meta_agent(memory)
 
     return {
-        "vision": vision_result,
-        "ocr": ocr_result,
+        "vision": vision,
+        "ocr": ocr,
+        "gnn": gnn,
         "power": power,
         "signal": signal,
         "thermal": thermal,
         "layout": layout,
-        "gnn": gnn,
-        "final": final_report
+        "final": final
     }
 
 
 # ----------------------------------------
-# ⚡ STREAMLIT CACHE
+# 🧠 META AGENT (FINAL BRAIN)
 # ----------------------------------------
-@st.cache_data(show_spinner=True)
-def cached_full_analysis(image_path, graph_summary, gnn_output, ocr_text):
-    return run_full_analysis(image_path, graph_summary, gnn_output, ocr_text)
+def meta_agent(memory):
 
+    context = memory.get_all()
 
-# ----------------------------------------
-# 🎯 LIGHT MODE (FAST)
-# ----------------------------------------
-def quick_analysis(image_path, graph_summary):
+    prompt = f"""
+    You are a senior PCB design expert.
 
-    vision = run_vision_agent(image_path, use_llm_refinement=False)
+    Combine all analysis:
 
-    context = f"""
-    Vision: {vision}
-    Graph: {graph_summary}
+    {context}
+
+    Provide:
+    - Final summary
+    - Critical risks
+    - Top 5 issues
+    - Actionable fixes
+    - Overall score (0-100)
     """
 
-    return {
-        "vision": vision,
-        "quick_insight": context
-    }
+    return invoke_llm("You are expert PCB engineer", prompt)
+    

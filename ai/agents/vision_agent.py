@@ -1,14 +1,21 @@
-import streamlit as st
 import json
 import re
+import streamlit as st
 
-from ai.vlm import analyze_image, analyze_front_back
-from ai.llm import invoke_llm
-from ai.prompts import VISION_ANALYSIS_PROMPT
+from models.pipeline import PCBPipeline
+from ai.llm import invoke_llm, invoke_with_memory
 
 
 # ----------------------------------------
-# 🧾 JSON PARSER (ROBUST)
+# 🧠 INIT PIPELINE (CACHED)
+# ----------------------------------------
+@st.cache_resource
+def get_pipeline():
+    return PCBPipeline()
+
+
+# ----------------------------------------
+# 🧾 JSON PARSER
 # ----------------------------------------
 def extract_json(text):
     try:
@@ -20,124 +27,162 @@ def extract_json(text):
                 return json.loads(match.group())
             except:
                 pass
-    return {"raw_output": text}
+
+    return {
+        "summary": str(text),
+        "confidence": 0.5,
+        "raw_output": text
+    }
 
 
 # ----------------------------------------
-# 👁️ RAW VISION ANALYSIS (VLM ONLY)
+# 👁️ MAIN VISION AGENT
 # ----------------------------------------
-def run_vision_vlm(image_path):
-    """
-    Calls Hugging Face VLM directly
-    """
-    try:
-        result = analyze_image(image_path)
-        return result
-    except Exception as e:
-        return f"Vision Error: {str(e)}"
+def run_vision_agent(image_path, structured=True):
 
+    pipeline = get_pipeline()
 
-# ----------------------------------------
-# 🧠 VISION + LLM REASONING
-# ----------------------------------------
-def refine_vision_with_llm(vlm_output):
-    """
-    Convert raw VLM output into structured insights
-    """
+    # ----------------------------------------
+    # 🔍 PERCEPTION LAYER (REAL MODELS)
+    # ----------------------------------------
+    perception = pipeline.safe_run(image_path)
 
-    system_prompt = """
+    components = perception.get("components", [])
+    ocr = perception.get("ocr", {})
+    segmentation = perception.get("segmentation", {})
+    metadata = perception.get("metadata", {})
+
+    # ----------------------------------------
+    # 🧠 LLM REASONING
+    # ----------------------------------------
+    prompt = f"""
     You are a PCB Vision Analysis Expert.
-    Convert raw vision observations into structured engineering insights.
-    """
 
-    user_prompt = f"""
-    Raw Vision Output:
-    {vlm_output}
+    Analyze the PCB using extracted data:
 
-    Convert into JSON:
+    Components:
+    {components}
+
+    OCR Data:
+    {ocr}
+
+    Segmentation:
+    {segmentation}
+
+    Metadata:
+    {metadata}
+
+    Identify:
+    - Component distribution
+    - Congestion regions
+    - Routing density
+    - Missing components
+    - Label inconsistencies
+    - Visual defects
+
+    Output STRICT JSON:
 
     {{
-        "routing_density": "...",
-        "congestion_areas": "...",
-        "power_issues": "...",
-        "thermal_hotspots": "...",
-        "placement_issues": "...",
-        "summary": "..."
+        "component_analysis": "...",
+        "routing_analysis": "...",
+        "issues": [
+            {{
+                "issue": "...",
+                "severity": "High/Medium/Low",
+                "location": "...",
+                "explanation": "...",
+                "confidence": 0.0-1.0
+            }}
+        ],
+        "summary": "...",
+        "confidence": 0.0-1.0
     }}
     """
 
-    response = invoke_llm(system_prompt, user_prompt)
+    response = invoke_llm("PCB Vision Expert", prompt)
+
+    if structured:
+        reasoning = extract_json(response)
+    else:
+        reasoning = response
+
+    # ----------------------------------------
+    # 📦 FINAL OUTPUT
+    # ----------------------------------------
+    return {
+        "structured": perception,
+        "reasoning": reasoning
+    }
+
+
+# ----------------------------------------
+# 🔁 FRONT + BACK ANALYSIS
+# ----------------------------------------
+def analyze_front_back(front_image, back_image):
+
+    front = run_vision_agent(front_image)
+    back = run_vision_agent(back_image)
+
+    prompt = f"""
+    Compare front and back PCB:
+
+    FRONT:
+    {front}
+
+    BACK:
+    {back}
+
+    Identify:
+    - Missing vias
+    - Alignment issues
+    - Connectivity problems
+
+    Return JSON.
+    """
+
+    response = invoke_llm("PCB Dual Side Analyst", prompt)
 
     return extract_json(response)
 
 
 # ----------------------------------------
-# 🚀 MAIN VISION AGENT (SINGLE IMAGE)
+# ⚡ QUICK VISION CHECK
 # ----------------------------------------
-def run_vision_agent(image_path, use_llm_refinement=True):
+def quick_vision_check(image_path):
+
+    pipeline = get_pipeline()
+
+    perception = pipeline.quick_run(image_path)
+
+    prompt = f"""
+    Provide quick insights:
+
+    {perception}
+
+    Keep it short.
     """
-    Full pipeline:
-    Image → VLM → (Optional) LLM refinement
-    """
 
-    # Step 1: Raw VLM
-    vlm_output = run_vision_vlm(image_path)
-
-    if not use_llm_refinement:
-        return {
-            "type": "vision",
-            "raw": vlm_output
-        }
-
-    # Step 2: Structured reasoning
-    structured = refine_vision_with_llm(vlm_output)
-
-    return {
-        "type": "vision",
-        "raw": vlm_output,
-        "structured": structured
-    }
+    return invoke_llm("Quick PCB Vision Checker", prompt)
 
 
 # ----------------------------------------
-# 🔄 FRONT + BACK PCB ANALYSIS
+# 📊 COMPONENT SUMMARY
 # ----------------------------------------
-def run_multilayer_vision(front_path, back_path):
-    """
-    Analyze both PCB layers
-    """
+def component_summary(perception):
 
-    try:
-        multi = analyze_front_back(front_path, back_path)
+    components = perception.get("components", [])
 
-        combined_prompt = f"""
-        Analyze combined PCB layers:
+    summary = {}
 
-        FRONT:
-        {multi['front']}
+    for comp in components:
+        name = comp.get("component", "unknown")
+        summary[name] = summary.get(name, 0) + 1
 
-        BACK:
-        {multi['back']}
-
-        Identify:
-        - Cross-layer issues
-        - Via problems
-        - Alignment mismatches
-        - Overall board quality
-
-        Return structured JSON.
-        """
-
-        result = invoke_llm(VISION_ANALYSIS_PROMPT, combined_prompt)
-
-        return extract_json(result)
-
-    except Exception as e:
-        return {"error": str(e)}
+    return summary
 
 
 # ----------------------------------------
-# ⚡ CACHED VERSION (STREAMLIT)
+# 🔄 CACHE WRAPPER
 # ----------------------------------------
 @st.cache_data(show_spinner=False)
 def cached_vision_agent(image_path):
@@ -145,31 +190,35 @@ def cached_vision_agent(image_path):
 
 
 # ----------------------------------------
-# 🎯 ADVANCED REGION-LEVEL ANALYSIS
+# 🧠 VISUAL ISSUE PRIORITIZATION
 # ----------------------------------------
-def region_based_analysis(image_path):
-    """
-    Future-ready function:
-    Divide PCB into regions and analyze separately
-    """
-
-    vlm_output = run_vision_vlm(image_path)
+def prioritize_visual_issues(vision_output):
 
     prompt = f"""
-    Divide PCB into regions and analyze:
+    Prioritize visual PCB issues:
 
-    {vlm_output}
+    {vision_output}
 
-    Output:
-    [
-        {{
-            "region": "Top Left",
-            "issue": "...",
-            "severity": "High/Medium/Low"
-        }}
-    ]
+    Rank based on severity and risk.
     """
 
-    result = invoke_llm("PCB Region Analysis Expert", prompt)
+    return invoke_llm("Vision Issue Prioritizer", prompt)
 
-    return extract_json(result)
+
+# ----------------------------------------
+# 🔧 SUGGEST VISUAL FIXES
+# ----------------------------------------
+def suggest_visual_fixes(vision_output):
+
+    prompt = f"""
+    Suggest fixes based on visual PCB issues:
+
+    {vision_output}
+
+    Include:
+    - Placement fixes
+    - Routing improvements
+    """
+
+    return invoke_llm("PCB Vision Fix Expert", prompt)
+    

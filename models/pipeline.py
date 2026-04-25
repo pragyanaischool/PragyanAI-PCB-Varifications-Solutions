@@ -1,30 +1,153 @@
-from models.vision.yolo_detector import detect_components
-from models.vision.ocr_model import extract_text
-from models.vision.segmentation_model import segment_pcb, overlay_mask
-from models.graph.graph_builder import build_graph
-from models.gnn.gnn_model import PCB_GNN
-from ai.agents import explain_results
+"""
+Unified PCB Perception Pipeline
 
-def run_full_pipeline(image_path):
+Combines:
+- Component Detection (YOLO / fallback)
+- OCR (text + component labels)
+- Segmentation (trace density / congestion)
 
-    components = detect_components(image_path)
-    ocr = extract_text(image_path)
+Output:
+Structured perception data for downstream agents
+"""
 
-    mask = segment_pcb(image_path)
-    overlay = overlay_mask(image_path, mask)
+from typing import Dict, Any
 
-    graph = build_graph(components)
+# Local model modules
+from models.ocr_model import extract_text
+from models.yolo_detector import PCBDetector
+from models.segmentation_model import PCBSegmentation
 
-    graph_summary = f"Nodes: {len(graph.nodes)}, Edges: {len(graph.edges)}"
 
-    gnn_output = "Potential routing issue detected"
+# ----------------------------------------
+# 🧠 MAIN PIPELINE CLASS
+# ----------------------------------------
+class PCBPipeline:
 
-    explanation = explain_results(graph_summary, gnn_output, ocr)
+    def __init__(self):
 
-    return {
-        "components": components,
-        "ocr": ocr,
-        "graph": graph_summary,
-        "analysis": explanation,
-        "overlay": overlay
-    }
+        # Initialize models (safe / lightweight)
+        self.detector = PCBDetector()
+        self.segmenter = PCBSegmentation()
+
+    # ----------------------------------------
+    # 🚀 MAIN ENTRY
+    # ----------------------------------------
+    def run(self, image_path: str) -> Dict[str, Any]:
+
+        result = {
+            "components": [],
+            "ocr": {},
+            "segmentation": {},
+            "metadata": {},
+            "errors": []
+        }
+
+        # ----------------------------------------
+        # 🔍 COMPONENT DETECTION
+        # ----------------------------------------
+        try:
+            detections = self.detector.detect(image_path)
+            result["components"] = detections
+        except Exception as e:
+            result["errors"].append(f"Detection error: {str(e)}")
+
+        # ----------------------------------------
+        # 🔤 OCR
+        # ----------------------------------------
+        try:
+            ocr_data = extract_text(image_path)
+            result["ocr"] = ocr_data
+        except Exception as e:
+            result["errors"].append(f"OCR error: {str(e)}")
+
+        # ----------------------------------------
+        # 🧩 SEGMENTATION
+        # ----------------------------------------
+        try:
+            segmentation = self.segmenter.segment(image_path)
+            result["segmentation"] = segmentation
+        except Exception as e:
+            result["errors"].append(f"Segmentation error: {str(e)}")
+
+        # ----------------------------------------
+        # 🧠 POST-PROCESSING
+        # ----------------------------------------
+        result["metadata"] = self._build_metadata(result)
+
+        return result
+
+    # ----------------------------------------
+    # 🧠 METADATA BUILDER
+    # ----------------------------------------
+    def _build_metadata(self, data: Dict) -> Dict:
+
+        components = data.get("components", [])
+        ocr = data.get("ocr", {})
+        segmentation = data.get("segmentation", {})
+
+        component_count = len(components)
+
+        detected_types = list(set([
+            c.get("component", "unknown")
+            for c in components
+        ]))
+
+        ocr_components = ocr.get("components", [])
+
+        trace_density = segmentation.get("trace_density", "unknown")
+
+        return {
+            "component_count": component_count,
+            "component_types": detected_types,
+            "ocr_component_labels": ocr_components,
+            "trace_density": trace_density,
+            "has_errors": len(data.get("errors", [])) > 0
+        }
+
+    # ----------------------------------------
+    # ⚡ QUICK MODE (FAST)
+    # ----------------------------------------
+    def quick_run(self, image_path: str) -> Dict:
+
+        try:
+            ocr = extract_text(image_path)
+
+            return {
+                "ocr": ocr,
+                "mode": "quick"
+            }
+
+        except Exception as e:
+            return {
+                "error": str(e),
+                "mode": "quick"
+            }
+
+    # ----------------------------------------
+    # 🔄 SAFE RUN (NO CRASH GUARANTEE)
+    # ----------------------------------------
+    def safe_run(self, image_path: str) -> Dict:
+
+        try:
+            return self.run(image_path)
+
+        except Exception as e:
+            return {
+                "components": [],
+                "ocr": {},
+                "segmentation": {},
+                "metadata": {},
+                "errors": [f"Pipeline failed: {str(e)}"]
+            }
+
+
+# ----------------------------------------
+# 🔧 UTILITY FUNCTION (OPTIONAL)
+# ----------------------------------------
+def run_pipeline(image_path: str) -> Dict:
+    """
+    Simple wrapper for external use
+    """
+
+    pipeline = PCBPipeline()
+    return pipeline.safe_run(image_path)

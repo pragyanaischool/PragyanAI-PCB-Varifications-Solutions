@@ -1,3 +1,5 @@
+# ai/agents/tool_agent.py
+
 import json
 import re
 import streamlit as st
@@ -9,10 +11,14 @@ from ai.llm import invoke_with_memory, invoke_llm
 # 🧾 JSON PARSER (ROBUST)
 # ----------------------------------------
 def extract_json(text):
+
+    if isinstance(text, dict):
+        text = text.get("content", str(text))
+
     try:
         return json.loads(text)
     except:
-        match = re.search(r"\{.*\}", text, re.DOTALL)
+        match = re.search(r"\{.*\}", str(text), re.DOTALL)
         if match:
             try:
                 return json.loads(match.group())
@@ -45,53 +51,86 @@ AVAILABLE_TOOLS = [
 
 
 # ----------------------------------------
+# 🧠 NORMALIZE ACTIONS
+# ----------------------------------------
+def normalize_actions(actions):
+
+    normalized = []
+    seen = set()
+
+    for a in actions:
+
+        tool = a.get("tool", "Unknown")
+
+        # enforce valid tools
+        if tool not in AVAILABLE_TOOLS:
+            tool = "General PCB Fix"
+
+        key = (tool, a.get("issue"))
+
+        if key in seen:
+            continue
+
+        seen.add(key)
+
+        normalized.append({
+            "tool": tool,
+            "issue": a.get("issue", ""),
+            "action": a.get("action", ""),
+            "priority": a.get("priority", "Medium"),
+            "expected_impact": a.get("expected_impact", ""),
+            "confidence": a.get("confidence", 0.7)
+        })
+
+    return normalized
+
+
+# ----------------------------------------
 # 🤖 MAIN TOOL AGENT
 # ----------------------------------------
 def run_tool_agent(memory, structured=True):
 
     context = memory.get_all()
 
-    # Cross-agent outputs
     power = memory.get("power")
     signal = memory.get("signal")
     thermal = memory.get("thermal")
     layout = memory.get("layout")
     vision = memory.get("vision")
+    gnn = memory.get("gnn")
 
     prompt = f"""
-    You are an expert PCB Design Fix Engineer.
+    You are an expert PCB Fix Engineer.
 
-    Based on full PCB analysis:
+    Analyze all issues:
 
-    Full Context:
-    {context}
-
-    Power Issues:
+    Power:
     {power}
 
-    Signal Issues:
+    Signal:
     {signal}
 
-    Thermal Issues:
+    Thermal:
     {thermal}
 
-    Layout Issues:
+    Layout:
     {layout}
 
-    Vision Insights:
+    Vision:
     {vision}
+
+    Graph/GNN:
+    {gnn}
 
     Available Tools:
     {AVAILABLE_TOOLS}
 
-    Your task:
-    - Identify critical issues
-    - Map each issue to a specific tool/action
-    - Suggest step-by-step fixes
-    - Prioritize actions
+    TASK:
+    - Map issues → tools
+    - Suggest fixes
+    - Prioritize
 
     Output STRICT JSON:
-
     {{
         "actions": [
             {{
@@ -108,16 +147,32 @@ def run_tool_agent(memory, structured=True):
     }}
     """
 
-    response = invoke_with_memory(
-        memory,
-        "PCB Fix Engineer",
-        prompt
-    )
+    response = invoke_with_memory(memory, "PCB Fix Engineer", prompt)
+    result = extract_json(response)
 
-    if structured:
-        return extract_json(response)
+    # ----------------------------------------
+    # 🔁 NORMALIZE + CLEAN
+    # ----------------------------------------
+    actions = normalize_actions(result.get("actions", []))
 
-    return response
+    # ----------------------------------------
+    # ⚠️ FALLBACK LOGIC
+    # ----------------------------------------
+    if not actions:
+        actions = [{
+            "tool": "General PCB Fix",
+            "issue": "No structured issues detected",
+            "action": "Review PCB layout manually",
+            "priority": "Medium",
+            "expected_impact": "General improvement",
+            "confidence": 0.5
+        }]
+
+    return {
+        "actions": actions,
+        "summary": result.get("summary", ""),
+        "confidence": result.get("confidence", 0.7)
+    } if structured else result
 
 
 # ----------------------------------------
@@ -128,7 +183,7 @@ def quick_fixes(memory):
     return invoke_with_memory(
         memory,
         "Quick PCB Fix Assistant",
-        "Suggest top 5 quick fixes."
+        "Give top 5 actionable fixes."
     )
 
 
@@ -138,12 +193,12 @@ def quick_fixes(memory):
 def prioritized_action_plan(memory):
 
     prompt = """
-    Create prioritized PCB improvement plan.
+    Create prioritized PCB fix roadmap.
 
     Order by:
     - Risk
     - Impact
-    - Ease of implementation
+    - Effort
     """
 
     return invoke_with_memory(
@@ -169,9 +224,7 @@ def cached_tool_agent(memory_dict):
         def get(self, key, default=None):
             return self.data.get(key, default)
 
-    temp_memory = TempMemory(memory_dict)
-
-    return run_tool_agent(temp_memory)
+    return run_tool_agent(TempMemory(memory_dict))
 
 
 # ----------------------------------------
@@ -179,33 +232,26 @@ def cached_tool_agent(memory_dict):
 # ----------------------------------------
 def prioritize_actions(tool_output):
 
-    prompt = f"""
-    Prioritize these PCB fixes:
+    response = invoke_llm(
+        "Fix Prioritizer",
+        f"Prioritize actions:\n{tool_output}"
+    )
 
-    {tool_output}
-
-    Rank based on:
-    - Severity
-    - System impact
-    - Ease of fix
-    """
-
-    return invoke_llm("Fix Prioritizer", prompt)
+    return response.get("content", response)
 
 
 # ----------------------------------------
-# 🔬 SIMULATION (IMPACT PREDICTION)
+# 🔬 SIMULATION
 # ----------------------------------------
 def simulate_fix_impact(memory):
 
     prompt = """
-    Simulate improvements after applying fixes.
+    Simulate improvements after fixes.
 
     Predict:
     - Signal improvement
-    - Power stability improvement
+    - Power stability
     - Thermal reduction
-    - Overall system score increase
     """
 
     return invoke_with_memory(
@@ -216,17 +262,17 @@ def simulate_fix_impact(memory):
 
 
 # ----------------------------------------
-# 🔧 EXECUTION PLAN (STEP-BY-STEP)
+# 🔧 EXECUTION PLAN
 # ----------------------------------------
 def generate_execution_steps(memory):
 
     prompt = """
-    Generate step-by-step execution plan to fix PCB issues.
+    Generate step-by-step PCB fix plan.
 
     Include:
-    - Order of operations
-    - Dependencies between fixes
-    - Estimated effort
+    - Order
+    - Dependencies
+    - Effort
     """
 
     return invoke_with_memory(

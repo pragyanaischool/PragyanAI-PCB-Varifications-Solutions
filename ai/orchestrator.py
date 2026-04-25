@@ -1,4 +1,5 @@
 import streamlit as st
+import time
 
 from ai.memory import PCBMemory
 
@@ -14,7 +15,31 @@ from ai.agents.layout_agent import run_layout_agent
 
 from ai.agents.tool_agent import run_tool_agent
 
-from ai.llm import invoke_llm
+# LLM
+from ai.llm import invoke_llm, invoke_with_memory, extract_json
+
+
+# ----------------------------------------
+# 🧠 SAFE EXECUTION WRAPPER
+# ----------------------------------------
+def safe_run(step_name, func, *args):
+    try:
+        start = time.time()
+        result = func(*args)
+        duration = round(time.time() - start, 2)
+
+        return {
+            "data": result,
+            "time": duration,
+            "error": None
+        }
+
+    except Exception as e:
+        return {
+            "data": None,
+            "time": 0,
+            "error": f"{step_name} failed: {str(e)}"
+        }
 
 
 # ----------------------------------------
@@ -22,111 +47,125 @@ from ai.llm import invoke_llm
 # ----------------------------------------
 def meta_agent(memory):
 
-    context = memory.get_all()
+    return extract_json(
+        invoke_with_memory(
+            memory,
+            "You are a Chief PCB Design Engineer.",
+            """
+            Combine all analysis and provide:
 
-    prompt = f"""
-    You are a Chief PCB Design Engineer.
+            - Final summary
+            - Critical risks
+            - Top 5 issues
+            - Recommended fixes
+            - Overall score (0-100)
 
-    Combine all analysis:
-
-    {context}
-
-    Provide:
-    - Final summary
-    - Critical risks
-    - Top 5 issues
-    - Recommended fixes
-    - Overall score (0-100)
-
-    Return structured JSON.
-    """
-
-    return invoke_llm("PCB Chief Engineer", prompt)
+            Return structured JSON.
+            """
+        )
+    )
 
 
 # ----------------------------------------
 # 🚀 FULL MULTI-AGENT PIPELINE
 # ----------------------------------------
-def run_full_analysis(image_path, graph_summary, gnn_output, ocr_text):
+def run_full_analysis(image_path, graph_summary=None, gnn_output=None, ocr_text=None):
 
     memory = PCBMemory()
+    debug_log = {}
 
     # ----------------------------------------
     # 👁️ VISION AGENT
     # ----------------------------------------
-    vision = run_vision_agent(image_path)
-    memory.update("vision", vision)
+    vision_res = safe_run("vision", run_vision_agent, image_path)
+    memory.update("vision", vision_res["data"])
+    debug_log["vision"] = vision_res
 
     # ----------------------------------------
     # 🔤 OCR AGENT
     # ----------------------------------------
-    ocr = run_ocr_agent(ocr_text)
-    memory.update("ocr", ocr)
+    if ocr_text:
+        ocr_res = safe_run("ocr", run_ocr_agent, ocr_text)
+        memory.update("ocr", ocr_res["data"])
+        debug_log["ocr"] = ocr_res
 
     # ----------------------------------------
     # 🔗 GRAPH DATA
     # ----------------------------------------
-    memory.update("graph", graph_summary)
+    if graph_summary:
+        memory.update("graph", graph_summary)
 
     # ----------------------------------------
     # 🤖 GNN AGENT
     # ----------------------------------------
-    gnn = run_gnn_agent(graph_summary, gnn_output)
-    memory.update("gnn", gnn)
+    if graph_summary:
+        gnn_res = safe_run("gnn", run_gnn_agent, graph_summary, gnn_output)
+        memory.update("gnn", gnn_res["data"])
+        debug_log["gnn"] = gnn_res
 
     # ----------------------------------------
     # ⚡ POWER AGENT
     # ----------------------------------------
-    power = run_power_agent(memory)
-    memory.update("power", power)
+    power_res = safe_run("power", run_power_agent, memory)
+    memory.update("power", power_res["data"])
+    debug_log["power"] = power_res
 
     # ----------------------------------------
-    # 🔌 SIGNAL AGENT (uses power)
+    # 🔌 SIGNAL AGENT
     # ----------------------------------------
-    signal = run_signal_agent(memory)
-    memory.update("signal", signal)
+    signal_res = safe_run("signal", run_signal_agent, memory)
+    memory.update("signal", signal_res["data"])
+    debug_log["signal"] = signal_res
 
     # ----------------------------------------
-    # 🌡️ THERMAL AGENT (uses power + layout)
+    # 🌡️ THERMAL AGENT
     # ----------------------------------------
-    thermal = run_thermal_agent(memory)
-    memory.update("thermal", thermal)
+    thermal_res = safe_run("thermal", run_thermal_agent, memory)
+    memory.update("thermal", thermal_res["data"])
+    debug_log["thermal"] = thermal_res
 
     # ----------------------------------------
     # 🧩 LAYOUT AGENT
     # ----------------------------------------
-    layout = run_layout_agent(memory)
-    memory.update("layout", layout)
+    layout_res = safe_run("layout", run_layout_agent, memory)
+    memory.update("layout", layout_res["data"])
+    debug_log["layout"] = layout_res
 
     # ----------------------------------------
-    # 🔧 TOOL AGENT (FIX ENGINE)
+    # 🔧 TOOL AGENT
     # ----------------------------------------
-    tools = run_tool_agent(memory)
-    memory.update("tools", tools)
+    tools_res = safe_run("tools", run_tool_agent, memory)
+    memory.update("tools", tools_res["data"])
+    debug_log["tools"] = tools_res
 
     # ----------------------------------------
-    # 🧠 META AGENT (FINAL SYNTHESIS)
+    # 🧠 META AGENT
     # ----------------------------------------
-    final = meta_agent(memory)
+    final_res = safe_run("meta", meta_agent, memory)
+    debug_log["meta"] = final_res
 
     # ----------------------------------------
     # 📦 FINAL OUTPUT
     # ----------------------------------------
     return {
-        "vision": vision,
-        "ocr": ocr,
-        "gnn": gnn,
-        "power": power,
-        "signal": signal,
-        "thermal": thermal,
-        "layout": layout,
-        "tools": tools,
-        "final": final
+        "results": {
+            "vision": memory.get("vision"),
+            "ocr": memory.get("ocr"),
+            "gnn": memory.get("gnn"),
+            "power": memory.get("power"),
+            "signal": memory.get("signal"),
+            "thermal": memory.get("thermal"),
+            "layout": memory.get("layout"),
+            "tools": memory.get("tools"),
+            "final": final_res["data"]
+        },
+        "debug": debug_log,
+        "memory_summary": memory.summary()
     }
 
 
 # ----------------------------------------
-# ⚡ STREAMLIT CACHE (IMPORTANT)
+# ⚡ STREAMLIT CACHE
 # ----------------------------------------
 @st.cache_data(show_spinner=True)
 def cached_full_analysis(image_path, graph_summary, gnn_output, ocr_text):
@@ -140,29 +179,38 @@ def cached_full_analysis(image_path, graph_summary, gnn_output, ocr_text):
 
 
 # ----------------------------------------
-# ⚡ QUICK MODE (FAST ANALYSIS)
+# ⚡ QUICK MODE
 # ----------------------------------------
-def quick_analysis(image_path, graph_summary):
+def quick_analysis(image_path, graph_summary=None):
 
     memory = PCBMemory()
 
     vision = run_vision_agent(image_path)
     memory.update("vision", vision)
 
-    memory.update("graph", graph_summary)
+    if graph_summary:
+        memory.update("graph", graph_summary)
 
-    quick_prompt = f"""
-    Provide quick PCB insights:
-
-    {memory.get_all()}
-
-    Keep it short.
-    """
-
-    quick_result = invoke_llm("Quick PCB Analyzer", quick_prompt)
+    quick_result = invoke_with_memory(
+        memory,
+        "Quick PCB Analyzer",
+        "Provide short actionable insights."
+    )
 
     return {
         "vision": vision,
         "quick_insight": quick_result
     }
+
+
+# ----------------------------------------
+# 💬 CHAT MODE
+# ----------------------------------------
+def chat_with_system(memory, user_query):
+
+    return invoke_with_memory(
+        memory,
+        "PCB AI Assistant",
+        f"User query: {user_query}"
+    )
     

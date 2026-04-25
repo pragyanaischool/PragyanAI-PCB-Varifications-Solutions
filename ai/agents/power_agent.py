@@ -3,7 +3,6 @@ import re
 import streamlit as st
 
 from ai.llm import invoke_llm
-from ai.prompts import SYSTEM_PCB_EXPERT, POWER_AGENT_PROMPT
 
 
 # ----------------------------------------
@@ -20,61 +19,55 @@ def extract_json(text):
             except:
                 pass
 
-    return {"raw_output": text}
+    return {
+        "issues": [],
+        "summary": text,
+        "confidence": 0.5,
+        "raw_output": text
+    }
 
 
 # ----------------------------------------
-# ⚡ BUILD CONTEXT
+# ⚡ MAIN POWER AGENT (MEMORY-BASED)
 # ----------------------------------------
-def build_power_context(vision=None, graph=None, ocr=None, gnn=None):
+def run_power_agent(memory, structured=True):
 
-    return f"""
-    PCB CONTEXT:
+    context = memory.get_all()
 
-    Vision Analysis:
-    {vision}
+    prompt = f"""
+    You are a senior PCB Power Integrity Engineer.
 
-    Graph Summary:
-    {graph}
+    Analyze the PCB for power-related issues using this context:
 
-    OCR Data:
-    {ocr}
-
-    GNN Output:
-    {gnn}
-    """
-
-
-# ----------------------------------------
-# ⚡ MAIN POWER ANALYSIS
-# ----------------------------------------
-def run_power_agent(context, structured=True):
-
-    system_prompt = SYSTEM_PCB_EXPERT
-
-    user_prompt = f"""
-    {POWER_AGENT_PROMPT}
-
-    Context:
     {context}
 
-    {"Return structured JSON." if structured else ""}
-    
-    Format:
+    Focus on:
+    - Power distribution quality
+    - Ground plane continuity
+    - Voltage stability
+    - Decoupling capacitor placement
+    - Power trace width adequacy
+    - Return current paths
+
+    Provide output in JSON:
+
     {{
         "issues": [
             {{
                 "issue": "...",
                 "severity": "High/Medium/Low",
                 "explanation": "...",
-                "fix": "..."
+                "fix": "...",
+                "location": "optional",
+                "confidence": 0.0-1.0
             }}
         ],
-        "summary": "..."
+        "summary": "...",
+        "confidence": 0.0-1.0
     }}
     """
 
-    response = invoke_llm(system_prompt, user_prompt)
+    response = invoke_llm("PCB Power Expert", prompt)
 
     if structured:
         return extract_json(response)
@@ -83,98 +76,109 @@ def run_power_agent(context, structured=True):
 
 
 # ----------------------------------------
-# 🔍 ADVANCED POWER ANALYSIS (DETAILED)
+# 🔍 ADVANCED POWER ANALYSIS
 # ----------------------------------------
-def advanced_power_analysis(context):
+def advanced_power_analysis(memory):
 
-    system_prompt = SYSTEM_PCB_EXPERT
+    context = memory.get_all()
 
-    user_prompt = f"""
+    prompt = f"""
     Perform deep power integrity analysis.
-
-    Check:
-    - Ground plane continuity
-    - Voltage stability
-    - Current distribution
-    - Decoupling capacitor placement
-    - Power trace width
-    - Return paths
 
     Context:
     {context}
 
-    Output JSON:
+    Evaluate:
+    - Current distribution efficiency
+    - Power network impedance
+    - Decoupling strategy effectiveness
+    - Noise risks
+    - IR drop potential
+
+    Return JSON with:
     {{
-        "power_distribution": "...",
+        "power_network": "...",
         "grounding": "...",
         "decoupling": "...",
         "issues": [...],
-        "recommendations": [...]
+        "recommendations": [...],
+        "confidence": 0.0-1.0
     }}
     """
 
-    response = invoke_llm(system_prompt, user_prompt)
+    response = invoke_llm("Advanced PCB Power Expert", prompt)
 
     return extract_json(response)
 
 
 # ----------------------------------------
-# 📊 POWER SCORING
+# 📊 POWER SCORE
 # ----------------------------------------
-def power_score(context):
+def power_score(memory):
 
-    system_prompt = SYSTEM_PCB_EXPERT
+    context = memory.get_all()
 
-    user_prompt = f"""
-    Evaluate power integrity.
+    prompt = f"""
+    Evaluate power integrity score (0-100):
 
-    Context:
     {context}
 
-    Give:
-    - score (0-100)
-    - explanation
+    Return JSON:
+    {{
+        "score": 0-100,
+        "explanation": "...",
+        "confidence": 0.0-1.0
+    }}
     """
 
-    response = invoke_llm(system_prompt, user_prompt)
+    response = invoke_llm("PCB Power Evaluator", prompt)
 
     return extract_json(response)
 
 
 # ----------------------------------------
-# ⚡ QUICK POWER CHECK (FAST)
+# ⚡ QUICK CHECK
 # ----------------------------------------
-def quick_power_check(context):
+def quick_power_check(memory):
 
-    system_prompt = "You are a PCB power expert."
+    context = memory.get_all()
 
-    user_prompt = f"""
-    Quickly identify major power issues:
+    prompt = f"""
+    Quickly list major power issues:
 
     {context}
 
-    Return short bullet points.
+    Keep it short.
     """
 
-    return invoke_llm(system_prompt, user_prompt)
+    return invoke_llm("PCB Power Quick Check", prompt)
 
 
 # ----------------------------------------
-# 🔄 STREAMLIT CACHED VERSION
+# 🔄 STREAMLIT CACHE
 # ----------------------------------------
 @st.cache_data(show_spinner=False)
-def cached_power_agent(context):
-    return run_power_agent(context)
+def cached_power_agent(memory_dict):
+    """
+    Cache-friendly wrapper (memory must be dict)
+    """
+    class TempMemory:
+        def __init__(self, data):
+            self.data = data
+
+        def get_all(self):
+            return self.data
+
+    temp_memory = TempMemory(memory_dict)
+    return run_power_agent(temp_memory)
 
 
 # ----------------------------------------
-# 🧠 ISSUE PRIORITIZATION
+# 🧠 PRIORITIZATION
 # ----------------------------------------
 def prioritize_power_issues(power_output):
 
-    system_prompt = SYSTEM_PCB_EXPERT
-
-    user_prompt = f"""
+    prompt = f"""
     Prioritize these power issues:
 
     {power_output}
@@ -182,4 +186,26 @@ def prioritize_power_issues(power_output):
     Sort by severity and impact.
     """
 
-    return invoke_llm(system_prompt, user_prompt)
+    return invoke_llm("PCB Issue Prioritizer", prompt)
+
+
+# ----------------------------------------
+# 🔧 FIX SUGGESTION ENGINE
+# ----------------------------------------
+def suggest_power_fixes(memory):
+
+    context = memory.get_all()
+
+    prompt = f"""
+    Suggest concrete fixes for power issues:
+
+    {context}
+
+    Include:
+    - Layout changes
+    - Component additions
+    - Routing improvements
+    """
+
+    return invoke_llm("PCB Power Fix Expert", prompt)
+    

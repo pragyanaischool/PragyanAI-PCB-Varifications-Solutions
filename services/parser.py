@@ -1,160 +1,152 @@
-"""
-PCB Parser Service (NO OpenCV VERSION)
+# services/parser.py
 
-- Uses PIL only (safe for Streamlit Cloud)
-- OCR supported (pytesseract)
-- Debug-friendly
-- Import-safe
+"""
+PCB Parser
+
+Supports:
+- Image-based parsing (via pipeline)
+- JSON-based parsing (future netlist support)
+- Safe fallback mode
+
+Output:
+{
+    "components": [...],
+    "metadata": {...},
+    "error": None
+}
 """
 
+from typing import Dict, Any
+from PIL import Image
 import os
-import re
-from typing import Dict, List
+import json
 
-# Safe imports
-try:
-    from PIL import Image
-    import pytesseract
-except Exception:
-    Image = None
-    pytesseract = None
+# Pipeline
+from models.pipeline import PCBPipeline
 
 
 # ----------------------------------------
-# 🧠 MAIN ENTRY
+# 🧠 MAIN PARSER
 # ----------------------------------------
-def parse_pcb(file_path: str) -> Dict:
-    """
-    Main parser entry point
-    """
+def parse_pcb(file_path: str) -> Dict[str, Any]:
 
-    if not file_path:
-        return {"error": "Empty file path"}
+    if not file_path or not os.path.exists(file_path):
+        return _error("File not found")
 
-    if not os.path.exists(file_path):
-        return {"error": f"File does not exist: {file_path}"}
+    ext = file_path.split(".")[-1].lower()
 
-    ext = os.path.splitext(file_path)[1].lower()
-
-    if ext in [".png", ".jpg", ".jpeg"]:
+    # ----------------------------------------
+    # 📷 IMAGE PARSING
+    # ----------------------------------------
+    if ext in ["png", "jpg", "jpeg", "bmp"]:
         return parse_from_image(file_path)
 
-    elif ext in [".txt", ".net", ".netlist"]:
-        return parse_netlist(file_path)
+    # ----------------------------------------
+    # 📄 JSON PARSING (FUTURE SUPPORT)
+    # ----------------------------------------
+    if ext in ["json"]:
+        return parse_from_json(file_path)
+
+    return _error(f"Unsupported file type: {ext}")
+
+
+# ----------------------------------------
+# 📷 IMAGE PARSER (CORE)
+# ----------------------------------------
+def parse_from_image(image_path: str) -> Dict[str, Any]:
+
+    try:
+        # Validate image
+        img = Image.open(image_path)
+        img.verify()
+
+    except Exception as e:
+        return _error(f"Invalid image: {str(e)}")
+
+    try:
+        pipeline = PCBPipeline()
+
+        perception = pipeline.safe_run(image_path)
+
+        return {
+            "components": perception.get("components", []),
+            "ocr": perception.get("ocr", {}),
+            "segmentation": perception.get("segmentation", {}),
+            "metadata": perception.get("metadata", {}),
+            "errors": perception.get("errors", [])
+        }
+
+    except Exception as e:
+        return _error(f"Pipeline failed: {str(e)}")
+
+
+# ----------------------------------------
+# 📄 JSON PARSER (NETLIST / FUTURE)
+# ----------------------------------------
+def parse_from_json(file_path: str) -> Dict[str, Any]:
+
+    try:
+        with open(file_path, "r") as f:
+            data = json.load(f)
+
+        return {
+            "components": data.get("components", []),
+            "nets": data.get("nets", []),
+            "metadata": {
+                "source": "json"
+            },
+            "error": None
+        }
+
+    except Exception as e:
+        return _error(f"JSON parsing failed: {str(e)}")
+
+
+# ----------------------------------------
+# ⚡ QUICK PARSER (FAST MODE)
+# ----------------------------------------
+def quick_parse(image_path: str):
+
+    try:
+        pipeline = PCBPipeline()
+        result = pipeline.quick_run(image_path)
+
+        return {
+            "ocr": result.get("ocr", {}),
+            "mode": "quick"
+        }
+
+    except Exception as e:
+        return _error(str(e))
+
+
+# ----------------------------------------
+# 🔍 VALIDATION
+# ----------------------------------------
+def validate_parsed_data(parsed):
+
+    issues = []
+
+    if not parsed.get("components"):
+        issues.append("No components detected")
+
+    if parsed.get("errors"):
+        issues.extend(parsed["errors"])
+
+    return {
+        "valid": len(issues) == 0,
+        "issues": issues
+    }
+
+
+# ----------------------------------------
+# 🧾 ERROR HANDLER
+# ----------------------------------------
+def _error(message: str):
 
     return {
         "components": [],
-        "nets": [],
-        "error": f"Unsupported file format: {ext}"
+        "metadata": {},
+        "error": message
     }
-
-
-# ----------------------------------------
-# 🖼️ IMAGE PARSER (PIL ONLY)
-# ----------------------------------------
-def parse_from_image(image_path: str) -> Dict:
-
-    debug = {}
-
-    # Validate file
-    if not os.path.exists(image_path):
-        return {"error": f"File not found: {image_path}"}
-
-    file_size = os.path.getsize(image_path)
-    debug["file_size"] = file_size
-
-    if file_size == 0:
-        return {"error": "File is empty", "debug": debug}
-
-    # Load image with PIL
-    try:
-        img = Image.open(image_path).convert("RGB")
-        debug["image_mode"] = img.mode
-        debug["image_size"] = img.size
-    except Exception as e:
-        return {
-            "error": f"Failed to load image using PIL: {str(e)}",
-            "debug": debug
-        }
-
-    # Convert to grayscale (for OCR)
-    try:
-        gray = img.convert("L")
-    except Exception as e:
-        return {
-            "error": f"Grayscale conversion failed: {str(e)}",
-            "debug": debug
-        }
-
-    # OCR
-    text = ""
-    if pytesseract:
-        try:
-            text = pytesseract.image_to_string(gray)
-            debug["ocr_length"] = len(text)
-        except Exception as e:
-            debug["ocr_error"] = str(e)
-    else:
-        debug["ocr"] = "pytesseract not installed"
-
-    # Extract components
-    components = extract_components_from_text(text)
-
-    # Build dummy nets
-    nets = build_dummy_nets(components)
-
-    return {
-        "components": components,
-        "nets": nets,
-        "raw_text": text,
-        "debug": debug
-    }
-
-
-# ----------------------------------------
-# 📜 NETLIST PARSER
-# ----------------------------------------
-def parse_netlist(file_path: str) -> Dict:
-
-    components = set()
-    nets = []
-
-    try:
-        with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-            lines = f.readlines()
-    except Exception as e:
-        return {"error": f"Failed to read netlist: {str(e)}"}
-
-    for line in lines:
-        tokens = re.findall(r"\b[A-Z]+\d+\b", line)
-
-        if len(tokens) >= 2:
-            components.update(tokens)
-            nets.append((tokens[0], tokens[1]))
-
-    return {
-        "components": list(components),
-        "nets": nets
-    }
-
-
-# ----------------------------------------
-# 🔍 COMPONENT EXTRACTION
-# ----------------------------------------
-def extract_components_from_text(text: str) -> List[str]:
-
-    pattern = r"\b(U\d+|R\d+|C\d+|L\d+|D\d+|Q\d+)\b"
-    return list(set(re.findall(pattern, text)))
-
-
-# ----------------------------------------
-# 🔗 DUMMY NET BUILDER
-# ----------------------------------------
-def build_dummy_nets(components: List[str]):
-
-    nets = []
-
-    for i in range(len(components) - 1):
-        nets.append((components[i], components[i + 1]))
-
-    return nets
+    

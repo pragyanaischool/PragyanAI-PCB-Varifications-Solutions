@@ -16,6 +16,9 @@ HF_API_TOKEN = st.secrets.get("HF_API_TOKEN", "")
 
 HF_MODEL_URL = "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.2"
 
+MAX_RETRIES = 3
+TIMEOUT = 60
+
 
 # ----------------------------------------
 # 🧠 LOAD LLM (CACHED)
@@ -34,6 +37,9 @@ def get_llm():
 # ----------------------------------------
 def extract_json(text):
 
+    if not text:
+        return {"error": "Empty response"}
+
     try:
         return json.loads(text)
     except:
@@ -44,30 +50,64 @@ def extract_json(text):
             except:
                 pass
 
-    return {"raw_output": text}
+    return {
+        "raw_output": text,
+        "confidence": 0.5
+    }
+
+
+# ----------------------------------------
+# 🧠 VALIDATE RESPONSE
+# ----------------------------------------
+def validate_response(response):
+
+    if not response:
+        return False
+
+    if isinstance(response, str) and len(response.strip()) < 5:
+        return False
+
+    return True
 
 
 # ----------------------------------------
 # 🚀 PRIMARY INVOKE (GROQ)
 # ----------------------------------------
-def invoke_llm(system_prompt: str, user_prompt: str, retries=2):
+def invoke_llm(system_prompt: str, user_prompt: str):
 
     llm = get_llm()
 
-    for attempt in range(retries):
+    for attempt in range(MAX_RETRIES):
         try:
+            start = time.time()
+
             response = llm.invoke([
                 SystemMessage(content=system_prompt),
                 HumanMessage(content=user_prompt)
             ])
 
-            return response.content
+            latency = round(time.time() - start, 2)
+
+            if not validate_response(response.content):
+                raise ValueError("Invalid LLM response")
+
+            return {
+                "content": response.content,
+                "latency": latency,
+                "source": "groq"
+            }
 
         except Exception as e:
-            if attempt < retries - 1:
-                time.sleep(2)
+
+            # Handle rate limit / retry
+            if attempt < MAX_RETRIES - 1:
+                time.sleep(2 * (attempt + 1))
             else:
-                return f"LLM Error: {str(e)}"
+                return {
+                    "content": f"LLM Error: {str(e)}",
+                    "latency": 0,
+                    "source": "error"
+                }
 
 
 # ----------------------------------------
@@ -76,7 +116,10 @@ def invoke_llm(system_prompt: str, user_prompt: str, retries=2):
 def fallback_hf(prompt):
 
     if not HF_API_TOKEN:
-        return "HF token missing"
+        return {
+            "content": "HF token missing",
+            "source": "hf_error"
+        }
 
     headers = {
         "Authorization": f"Bearer {HF_API_TOKEN}"
@@ -89,21 +132,33 @@ def fallback_hf(prompt):
             HF_MODEL_URL,
             headers=headers,
             json=payload,
-            timeout=60
+            timeout=TIMEOUT
         )
 
         if response.status_code != 200:
-            return f"HF Error: {response.text}"
+            return {
+                "content": f"HF Error: {response.text}",
+                "source": "hf_error"
+            }
 
         result = response.json()
 
         if isinstance(result, list):
-            return result[0].get("generated_text", str(result))
+            return {
+                "content": result[0].get("generated_text", str(result)),
+                "source": "hf"
+            }
 
-        return str(result)
+        return {
+            "content": str(result),
+            "source": "hf"
+        }
 
     except Exception as e:
-        return f"HF Exception: {str(e)}"
+        return {
+            "content": f"HF Exception: {str(e)}",
+            "source": "hf_exception"
+        }
 
 
 # ----------------------------------------
@@ -113,10 +168,11 @@ def safe_invoke(system_prompt, user_prompt):
 
     response = invoke_llm(system_prompt, user_prompt)
 
-    if "Error" in str(response):
-        response = fallback_hf(user_prompt)
+    if response["source"] == "error":
+        fallback = fallback_hf(user_prompt)
+        return fallback["content"]
 
-    return response
+    return response["content"]
 
 
 # ----------------------------------------
@@ -124,7 +180,10 @@ def safe_invoke(system_prompt, user_prompt):
 # ----------------------------------------
 def invoke_with_memory(memory, system_prompt, task_prompt):
 
-    context = memory.get_context()
+    context = ""
+
+    if memory:
+        context = memory.get_context()
 
     full_prompt = f"""
     Context:
@@ -170,92 +229,40 @@ def structured_analysis(context: str):
 
 
 # ----------------------------------------
-# ⚡ POWER AGENT
-# ----------------------------------------
-def power_analysis(memory):
-
-    return invoke_with_memory(
-        memory,
-        "You are a PCB Power Integrity Expert.",
-        "Analyze power issues and suggest fixes."
-    )
-
-
-# ----------------------------------------
-# 🔌 SIGNAL AGENT
-# ----------------------------------------
-def signal_analysis(memory):
-
-    return invoke_with_memory(
-        memory,
-        "You are a Signal Integrity Engineer.",
-        "Analyze signal issues like crosstalk, reflection."
-    )
-
-
-# ----------------------------------------
-# 🌡️ THERMAL AGENT
-# ----------------------------------------
-def thermal_analysis(memory):
-
-    return invoke_with_memory(
-        memory,
-        "You are a Thermal Engineer.",
-        "Detect hotspots and cooling issues."
-    )
-
-
-# ----------------------------------------
-# 🧩 LAYOUT AGENT
-# ----------------------------------------
-def layout_analysis(memory):
-
-    return invoke_with_memory(
-        memory,
-        "You are a PCB Layout Expert.",
-        "Check spacing, placement, routing."
-    )
-
-
-# ----------------------------------------
-# 🔧 TOOL / FIX AGENT
-# ----------------------------------------
-def tool_analysis(memory):
-
-    return invoke_with_memory(
-        memory,
-        "You are a PCB Fix Engineer.",
-        "Suggest actionable fixes."
-    )
-
-
-# ----------------------------------------
-# 🧠 MASTER MULTI-AGENT
+# 🤖 MULTI-AGENT WRAPPER
 # ----------------------------------------
 def run_multi_agent_analysis(memory):
 
-    power = power_analysis(memory)
-    memory.update("power", power)
+    agents = {}
 
-    signal = signal_analysis(memory)
-    memory.update("signal", signal)
+    for name, prompt in [
+        ("power", "Analyze power issues"),
+        ("signal", "Analyze signal integrity"),
+        ("thermal", "Analyze thermal risks"),
+        ("layout", "Analyze layout design")
+    ]:
 
-    thermal = thermal_analysis(memory)
-    memory.update("thermal", thermal)
+        result = invoke_with_memory(
+            memory,
+            f"You are a PCB {name} expert.",
+            prompt
+        )
 
-    layout = layout_analysis(memory)
-    memory.update("layout", layout)
+        memory.update(name, result)
+        agents[name] = result
 
-    tools = tool_analysis(memory)
+    tools = invoke_with_memory(
+        memory,
+        "You are a PCB fix expert.",
+        "Suggest fixes"
+    )
+
     memory.update("tools", tools)
 
     final = structured_analysis(memory.get_context())
 
     return {
-        "power": power,
-        "signal": signal,
-        "thermal": thermal,
-        "layout": layout,
+        **agents,
         "tools": tools,
         "final": final
     }
@@ -274,7 +281,7 @@ def chat_with_pcb(memory, user_query):
 
 
 # ----------------------------------------
-# ⚡ STREAMLIT CACHE
+# ⚡ CACHE
 # ----------------------------------------
 @st.cache_data(show_spinner=False)
 def cached_llm(system_prompt, user_prompt):

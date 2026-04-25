@@ -2,125 +2,170 @@ import json
 import re
 import streamlit as st
 
-from ai.llm import invoke_llm
-from ai.prompts import SYSTEM_PCB_EXPERT, OCR_PROMPT
+from models.ocr_model import extract_text
 
 
 # ----------------------------------------
-# 🧾 JSON PARSER
+# 🧾 CLEAN TEXT FUNCTION
 # ----------------------------------------
-def extract_json(text):
+def clean_text(text):
+
+    if not text:
+        return ""
+
+    text = text.strip()
+    text = re.sub(r"\s+", " ", text)
+
+    return text
+
+
+# ----------------------------------------
+# 🔍 EXTRACT COMPONENT LABELS
+# ----------------------------------------
+def extract_labels(text):
+
+    if not text:
+        return []
+
+    pattern = r"\b(U\d+|R\d+|C\d+|L\d+|D\d+|Q\d+)\b"
+
+    return list(set(re.findall(pattern, text)))
+
+
+# ----------------------------------------
+# 🧠 MAIN OCR AGENT
+# ----------------------------------------
+def run_ocr_agent(text_input=None, image_path=None, structured=True):
+
+    result = {
+        "raw_text": "",
+        "cleaned_text": "",
+        "components": [],
+        "lines": [],
+        "metadata": {},
+        "error": None
+    }
+
     try:
-        return json.loads(text)
-    except:
-        match = re.search(r"\{.*\}", text, re.DOTALL)
-        if match:
-            try:
-                return json.loads(match.group())
-            except:
-                pass
-    return {"raw_output": text}
+        # ----------------------------------------
+        # 📷 IMAGE-BASED OCR
+        # ----------------------------------------
+        if image_path:
+            ocr_data = extract_text(image_path)
+
+            raw_text = ocr_data.get("full_text", "") or ocr_data.get("text", "")
+            lines = ocr_data.get("lines", [])
+
+        # ----------------------------------------
+        # 📝 TEXT INPUT
+        # ----------------------------------------
+        else:
+            raw_text = text_input or ""
+            lines = raw_text.split("\n")
+
+        # ----------------------------------------
+        # 🧠 PROCESSING
+        # ----------------------------------------
+        cleaned = clean_text(raw_text)
+        components = extract_labels(cleaned)
+
+        result.update({
+            "raw_text": raw_text,
+            "cleaned_text": cleaned,
+            "components": components,
+            "lines": lines,
+            "metadata": {
+                "num_lines": len(lines),
+                "num_components_detected": len(components)
+            }
+        })
+
+    except Exception as e:
+        result["error"] = str(e)
+
+    return result
 
 
 # ----------------------------------------
-# 📜 BUILD CONTEXT
+# ⚡ QUICK OCR MODE
 # ----------------------------------------
-def build_ocr_context(ocr_text, vision=None, graph=None):
+def quick_ocr(image_path):
 
-    return f"""
-    PCB CONTEXT:
+    try:
+        ocr_data = extract_text(image_path)
+        text = ocr_data.get("full_text", "")
 
-    OCR TEXT:
-    {ocr_text}
+        return clean_text(text)
 
-    Vision:
-    {vision}
-
-    Graph:
-    {graph}
-    """
+    except Exception as e:
+        return f"OCR Error: {str(e)}"
 
 
 # ----------------------------------------
-# 🔤 MAIN OCR ANALYSIS
+# 📊 OCR SUMMARY
 # ----------------------------------------
-def run_ocr_agent(ocr_text, structured=True):
+def ocr_summary(ocr_output):
 
-    system_prompt = SYSTEM_PCB_EXPERT
-
-    user_prompt = f"""
-    {OCR_PROMPT}
-
-    OCR DATA:
-    {ocr_text}
-
-    {"Return structured JSON." if structured else ""}
-
-    Format:
-    {{
-        "components": [
-            {{
-                "name": "...",
-                "type": "Resistor/Capacitor/IC",
-                "value": "...",
-                "role": "..."
-            }}
-        ],
-        "power_labels": ["5V", "GND"],
-        "important_ic": ["..."],
-        "summary": "..."
-    }}
-    """
-
-    response = invoke_llm(system_prompt, user_prompt)
-
-    if structured:
-        return extract_json(response)
-
-    return response
+    return {
+        "text_length": len(ocr_output.get("cleaned_text", "")),
+        "components_found": ocr_output.get("components", []),
+        "num_lines": ocr_output.get("metadata", {}).get("num_lines", 0)
+    }
 
 
 # ----------------------------------------
-# 🔍 ADVANCED OCR ANALYSIS
+# 🔍 VALIDATE OCR QUALITY
 # ----------------------------------------
-def advanced_ocr_analysis(context):
+def validate_ocr(ocr_output):
 
-    system_prompt = SYSTEM_PCB_EXPERT
+    text = ocr_output.get("cleaned_text", "")
 
-    user_prompt = f"""
-    Perform deep OCR interpretation.
+    if not text:
+        return {
+            "valid": False,
+            "reason": "No text detected"
+        }
 
-    Context:
-    {context}
+    if len(text) < 5:
+        return {
+            "valid": False,
+            "reason": "Too little text"
+        }
 
-    Identify:
-    - Circuit type
-    - Power domains
-    - Key IC roles
-    - Signal flow hints
-
-    Output JSON.
-    """
-
-    response = invoke_llm(system_prompt, user_prompt)
-
-    return extract_json(response)
+    return {
+        "valid": True,
+        "reason": "OCR looks good"
+    }
 
 
 # ----------------------------------------
-# ⚡ QUICK OCR CHECK
-# ----------------------------------------
-def quick_ocr_check(ocr_text):
-
-    return invoke_llm(
-        "You are a PCB text analysis expert.",
-        f"Summarize OCR data:\n{ocr_text}"
-    )
-
-
-# ----------------------------------------
-# 🔄 CACHE
+# 🔄 CACHE WRAPPER
 # ----------------------------------------
 @st.cache_data(show_spinner=False)
-def cached_ocr_agent(ocr_text):
-    return run_ocr_agent(ocr_text)
+def cached_ocr_agent(image_path):
+
+    return run_ocr_agent(image_path=image_path)
+
+
+# ----------------------------------------
+# 🧠 POST-PROCESSING (OPTIONAL)
+# ----------------------------------------
+def enrich_ocr_with_llm(memory):
+
+    from ai.llm import invoke_with_memory
+
+    prompt = """
+    Analyze OCR extracted PCB labels.
+
+    Identify:
+    - Missing components
+    - Label inconsistencies
+    - Suspicious naming
+    """
+
+    return invoke_with_memory(
+        memory,
+        "PCB OCR Analyst",
+        prompt
+    )
+    

@@ -2,7 +2,7 @@ import json
 import re
 import streamlit as st
 
-from ai.llm import invoke_llm
+from ai.llm import invoke_with_memory
 
 
 # ----------------------------------------
@@ -21,49 +21,50 @@ def extract_json(text):
 
     return {
         "issues": [],
-        "summary": text,
+        "summary": str(text),
         "confidence": 0.5,
         "raw_output": text
     }
 
 
 # ----------------------------------------
-# 🔌 MAIN SIGNAL AGENT (MEMORY-BASED)
+# 🔌 MAIN SIGNAL AGENT (ENHANCED)
 # ----------------------------------------
 def run_signal_agent(memory, structured=True):
 
     context = memory.get_all()
 
-    # Cross-agent inputs
-    power_data = memory.get("power")
-    vision_data = memory.get("vision")
-    graph_data = memory.get("graph")
+    # Cross-agent awareness
+    power = memory.get("power")
+    layout = memory.get("layout")
+    vision = memory.get("vision")
 
     prompt = f"""
-    You are a senior PCB Signal Integrity Engineer.
+    You are a senior Signal Integrity Engineer.
 
-    Analyze signal integrity issues using the full PCB context.
+    Analyze PCB signal behavior using FULL context:
 
-    Context:
+    Full Context:
     {context}
 
-    Power Analysis (important for SI):
-    {power_data}
+    Power Analysis:
+    {power}
 
-    Vision Observations:
-    {vision_data}
+    Layout Analysis:
+    {layout}
 
-    Graph Structure:
-    {graph_data}
+    Vision Data:
+    {vision}
 
     Focus on:
     - Crosstalk between traces
     - Impedance mismatch
     - Signal reflections
-    - Trace length mismatch
-    - High-speed routing issues
-    - Differential pair imbalance
+    - Trace length matching
+    - Differential pair routing
+    - Signal-to-power interference
     - EMI/EMC risks
+    - High-speed signal integrity issues
 
     Output STRICT JSON:
 
@@ -83,7 +84,11 @@ def run_signal_agent(memory, structured=True):
     }}
     """
 
-    response = invoke_llm("PCB Signal Expert", prompt)
+    response = invoke_with_memory(
+        memory,
+        "PCB Signal Integrity Expert",
+        prompt
+    )
 
     if structured:
         return extract_json(response)
@@ -96,34 +101,31 @@ def run_signal_agent(memory, structured=True):
 # ----------------------------------------
 def advanced_signal_analysis(memory):
 
-    context = memory.get_all()
-
-    prompt = f"""
+    prompt = """
     Perform deep signal integrity analysis.
-
-    Context:
-    {context}
 
     Evaluate:
     - Transmission line effects
+    - Impedance control
     - Differential pair balance
-    - Clock signal integrity
-    - Noise coupling
-    - EMI/EMC vulnerabilities
+    - EMI/EMC risk
+    - Signal delay mismatch
 
-    Return JSON:
-    {{
-        "crosstalk": "...",
-        "impedance": "...",
-        "reflections": "...",
-        "timing": "...",
+    Return structured JSON:
+    {
+        "signal_quality": "...",
+        "impedance_control": "...",
         "issues": [...],
         "recommendations": [...],
         "confidence": 0.0-1.0
-    }}
+    }
     """
 
-    response = invoke_llm("Advanced Signal Integrity Expert", prompt)
+    response = invoke_with_memory(
+        memory,
+        "Advanced Signal Integrity Engineer",
+        prompt
+    )
 
     return extract_json(response)
 
@@ -133,52 +135,44 @@ def advanced_signal_analysis(memory):
 # ----------------------------------------
 def signal_score(memory):
 
-    context = memory.get_all()
+    prompt = """
+    Evaluate signal integrity score (0-100).
 
-    prompt = f"""
-    Evaluate signal integrity score (0-100):
+    Consider:
+    - Crosstalk
+    - Reflection
+    - Impedance
+    - Routing quality
 
-    {context}
-
-    Return JSON:
-    {{
-        "score": 0-100,
-        "explanation": "...",
-        "confidence": 0.0-1.0
-    }}
+    Return JSON.
     """
 
-    response = invoke_llm("Signal Quality Evaluator", prompt)
+    response = invoke_with_memory(
+        memory,
+        "Signal Evaluator",
+        prompt
+    )
 
     return extract_json(response)
 
 
 # ----------------------------------------
-# ⚡ QUICK SIGNAL CHECK
+# ⚡ QUICK CHECK
 # ----------------------------------------
 def quick_signal_check(memory):
 
-    context = memory.get_all()
-
-    prompt = f"""
-    Quickly identify major signal issues:
-
-    {context}
-
-    Return short bullet points.
-    """
-
-    return invoke_llm("Signal Quick Checker", prompt)
+    return invoke_with_memory(
+        memory,
+        "Quick Signal Checker",
+        "List top 3 signal issues."
+    )
 
 
 # ----------------------------------------
-# 🔄 STREAMLIT CACHE
+# 🔄 CACHE WRAPPER
 # ----------------------------------------
 @st.cache_data(show_spinner=False)
 def cached_signal_agent(memory_dict):
-    """
-    Cache-friendly wrapper
-    """
 
     class TempMemory:
         def __init__(self, data):
@@ -201,13 +195,17 @@ def cached_signal_agent(memory_dict):
 def prioritize_signal_issues(signal_output):
 
     prompt = f"""
-    Prioritize these signal issues:
+    Prioritize signal issues:
 
     {signal_output}
 
-    Rank by severity, timing impact, and EMI risk.
+    Rank based on:
+    - Severity
+    - Impact on performance
+    - EMI risk
     """
 
+    from ai.llm import invoke_llm
     return invoke_llm("Signal Issue Prioritizer", prompt)
 
 
@@ -216,19 +214,40 @@ def prioritize_signal_issues(signal_output):
 # ----------------------------------------
 def suggest_signal_fixes(memory):
 
-    context = memory.get_all()
-
-    prompt = f"""
-    Suggest fixes for signal integrity issues:
-
-    {context}
+    prompt = """
+    Suggest signal integrity improvements:
 
     Include:
-    - Trace routing improvements
-    - Shielding techniques
-    - Impedance control suggestions
-    - Differential pair corrections
+    - Trace rerouting
+    - Impedance control fixes
+    - Differential pair correction
+    - EMI reduction techniques
     """
 
-    return invoke_llm("Signal Fix Expert", prompt)
+    return invoke_with_memory(
+        memory,
+        "Signal Fix Expert",
+        prompt
+    )
+
+
+# ----------------------------------------
+# 🔬 SIGNAL SIMULATION (AI-BASED)
+# ----------------------------------------
+def simulate_signal_improvement(memory):
+
+    prompt = """
+    Simulate improvements after signal fixes:
+
+    Predict:
+    - Reduced crosstalk
+    - Improved timing
+    - Reduced EMI
+    """
+
+    return invoke_with_memory(
+        memory,
+        "Signal Simulation Expert",
+        prompt
+    )
     

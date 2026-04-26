@@ -1,10 +1,11 @@
-# ai/memory.py
-
 """
-Shared Memory System for Multi-Agent PCB AI
+Enhanced Shared Memory System for PCB AI
 
-Acts as:
-🧠 Central brain for all agents
+✔ Multi-agent memory
+✔ Chat memory (multi-turn)
+✔ RAG context
+✔ Token-safe context
+✔ Debug + trace
 """
 
 from typing import Any, Dict, List
@@ -18,7 +19,9 @@ class PCBMemory:
 
     def __init__(self):
         self.data: Dict[str, Any] = {}
-        self.history: List[Dict] = []   # 🧠 reasoning trace
+        self.history: List[Dict] = []        # agent trace
+        self.chat_history: List[Dict] = []   # 💬 NEW
+        self.rag_context: List[str] = []     # 📚 NEW
 
 
     # ----------------------------------------
@@ -31,7 +34,6 @@ class PCBMemory:
 
         self.data[key] = value
 
-        # 🔥 Track history (critical for debugging AI)
         self.history.append({
             "step": len(self.history),
             "key": key,
@@ -87,12 +89,49 @@ class PCBMemory:
 
         self.data = {}
         self.history = []
+        self.chat_history = []
+        self.rag_context = []
+
+
+    # ----------------------------------------
+    # 💬 CHAT MEMORY (NEW)
+    # ----------------------------------------
+    def add_chat(self, user: str, ai: str):
+
+        self.chat_history.append({
+            "user": user,
+            "ai": ai
+        })
+
+
+    def get_chat_context(self, last_n=5):
+
+        context = ""
+
+        for h in self.chat_history[-last_n:]:
+            context += f"\nUser: {h['user']}\nAI: {h['ai']}"
+
+        return context
+
+
+    # ----------------------------------------
+    # 📚 RAG CONTEXT (NEW)
+    # ----------------------------------------
+    def add_rag(self, chunks: List[str]):
+
+        if isinstance(chunks, list):
+            self.rag_context.extend(chunks)
+
+
+    def get_rag_context(self, max_chunks=5):
+
+        return "\n".join(self.rag_context[:max_chunks])
 
 
     # ----------------------------------------
     # 🧠 FULL CONTEXT (FOR LLM)
     # ----------------------------------------
-    def get_context(self, exclude_keys=None) -> str:
+    def get_context(self, exclude_keys=None):
 
         exclude_keys = exclude_keys or []
 
@@ -109,7 +148,31 @@ class PCBMemory:
 
 
     # ----------------------------------------
-    # 🧠 LIMITED CONTEXT (TOKEN SAFE)
+    # 🧠 SMART CONTEXT (NEW)
+    # ----------------------------------------
+    def get_smart_context(self, max_chars=4000):
+
+        context = self.get_context()
+
+        chat = self.get_chat_context()
+        rag = self.get_rag_context()
+
+        full = f"""
+        MEMORY:
+        {context}
+
+        CHAT:
+        {chat}
+
+        KNOWLEDGE:
+        {rag}
+        """
+
+        return full[:max_chars]
+
+
+    # ----------------------------------------
+    # 🧠 LIMITED CONTEXT
     # ----------------------------------------
     def get_limited_context(self, max_chars=4000):
 
@@ -126,15 +189,9 @@ class PCBMemory:
     # ----------------------------------------
     def get_agent_context(self, agent_name: str):
 
-        """
-        Give each agent relevant context only
-        """
-
         base = self.get_context(exclude_keys=["tools", "final"])
 
-        agent_specific = f"\n\nCURRENT_AGENT: {agent_name.upper()}"
-
-        return base + agent_specific
+        return f"{base}\n\nCURRENT_AGENT: {agent_name.upper()}"
 
 
     # ----------------------------------------
@@ -145,7 +202,9 @@ class PCBMemory:
         return {
             "keys": list(self.data.keys()),
             "num_items": len(self.data),
-            "history_steps": len(self.history)
+            "history_steps": len(self.history),
+            "chat_turns": len(self.chat_history),
+            "rag_chunks": len(self.rag_context)
         }
 
 
@@ -167,7 +226,7 @@ class PCBMemory:
 
 
     # ----------------------------------------
-    # 🧠 HISTORY (VERY IMPORTANT)
+    # 🧠 HISTORY
     # ----------------------------------------
     def get_history(self):
 
@@ -175,7 +234,7 @@ class PCBMemory:
 
 
     # ----------------------------------------
-    # 🔍 FILTER KEYS
+    # 🔍 FILTER
     # ----------------------------------------
     def filter(self, keys: List[str]):
 
@@ -183,7 +242,7 @@ class PCBMemory:
 
 
     # ----------------------------------------
-    # 🧪 DEBUG PRINT
+    # 🧪 DEBUG
     # ----------------------------------------
     def debug(self):
 
@@ -196,6 +255,13 @@ class PCBMemory:
         for step in self.history:
             print(step)
 
+        print("\n💬 CHAT:")
+        for c in self.chat_history:
+            print(c)
+
+        print("\n📚 RAG:")
+        print(len(self.rag_context), "chunks")
+
 
     # ----------------------------------------
     # 🔁 SAFE COPY
@@ -204,6 +270,10 @@ class PCBMemory:
 
         new_mem = PCBMemory()
         new_mem.from_dict(self.data)
+
+        new_mem.chat_history = copy.deepcopy(self.chat_history)
+        new_mem.rag_context = copy.deepcopy(self.rag_context)
+
         return new_mem
 
 
@@ -212,7 +282,14 @@ class PCBMemory:
     # ----------------------------------------
     def __repr__(self):
 
-        return f"PCBMemory(keys={list(self.data.keys())}, steps={len(self.history)})"
+        return f"""
+        PCBMemory(
+            keys={list(self.data.keys())},
+            steps={len(self.history)},
+            chat={len(self.chat_history)},
+            rag={len(self.rag_context)}
+        )
+        """
 
 
 # ----------------------------------------
@@ -226,4 +303,3 @@ def create_memory(initial_data: Dict[str, Any] = None):
         memory.merge(initial_data)
 
     return memory
-    

@@ -14,6 +14,7 @@ langchain-groq
 faiss-cpu 
 langchain-huggingface 
 langchain-text-splitters
+sentence-transformers
 # -----------------------------
 # 🤖 Hugging Face / VLM
 # -----------------------------
@@ -33,6 +34,12 @@ ultralytics>=8.2.0
 # -----------------------------
 torch
 torchvision
+
+# --- PDF / RAG ---
+PyPDF2
+pdfplumber
+pytesseract
+pdf2image
 
 # -----------------------------
 # 🔗 Graph Processing

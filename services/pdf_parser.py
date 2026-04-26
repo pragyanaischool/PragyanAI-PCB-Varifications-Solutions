@@ -3,11 +3,12 @@
 """
 PDF Parser for PCB AI System
 
-✔ Extracts text from PDFs
-✔ Supports OCR fallback (scanned PDFs)
-✔ Extracts metadata
-✔ Splits into chunks for RAG
-✔ Handles errors safely
+✔ Extract text from PDFs
+✔ OCR fallback for scanned PDFs
+✔ Extract metadata
+✔ Extract tables (basic)
+✔ Chunk text for RAG / FAISS
+✔ Safe + production-ready
 """
 
 import os
@@ -16,7 +17,7 @@ from typing import Dict, List
 # Text extraction
 from PyPDF2 import PdfReader
 
-# OCR fallback
+# Optional OCR
 try:
     import pytesseract
     from pdf2image import convert_from_path
@@ -24,9 +25,16 @@ try:
 except:
     OCR_AVAILABLE = False
 
+# Optional table extraction
+try:
+    import pdfplumber
+    TABLE_AVAILABLE = True
+except:
+    TABLE_AVAILABLE = False
+
 
 # ----------------------------------------
-# 📄 BASIC TEXT EXTRACTION
+# 📄 TEXT EXTRACTION (STANDARD)
 # ----------------------------------------
 def extract_text_from_pdf(file_path: str) -> str:
 
@@ -47,7 +55,7 @@ def extract_text_from_pdf(file_path: str) -> str:
 
 
 # ----------------------------------------
-# 🔍 OCR FALLBACK (SCANNED PDF)
+# 🔍 OCR EXTRACTION (SCANNED PDFs)
 # ----------------------------------------
 def extract_text_with_ocr(file_path: str) -> str:
 
@@ -69,13 +77,13 @@ def extract_text_with_ocr(file_path: str) -> str:
 
 
 # ----------------------------------------
-# 🧠 SMART EXTRACTION (AUTO SWITCH)
+# 🧠 SMART TEXT EXTRACTION
 # ----------------------------------------
 def extract_pdf_text(file_path: str) -> str:
 
     text = extract_text_from_pdf(file_path)
 
-    # If text too small → likely scanned PDF
+    # If too small → fallback to OCR
     if len(text.strip()) < 50:
         ocr_text = extract_text_with_ocr(file_path)
 
@@ -92,7 +100,6 @@ def extract_metadata(file_path: str) -> Dict:
 
     try:
         reader = PdfReader(file_path)
-
         meta = reader.metadata
 
         return {
@@ -110,7 +117,32 @@ def extract_metadata(file_path: str) -> Dict:
 
 
 # ----------------------------------------
-# ✂️ CHUNK TEXT (FOR RAG)
+# 📋 TABLE EXTRACTION (BASIC BOM SUPPORT)
+# ----------------------------------------
+def extract_tables(file_path: str) -> List:
+
+    if not TABLE_AVAILABLE:
+        return []
+
+    tables = []
+
+    try:
+        with pdfplumber.open(file_path) as pdf:
+
+            for page in pdf.pages:
+                page_tables = page.extract_tables()
+
+                for table in page_tables:
+                    tables.append(table)
+
+    except:
+        return []
+
+    return tables
+
+
+# ----------------------------------------
+# ✂️ CHUNK TEXT FOR RAG
 # ----------------------------------------
 def chunk_text(text: str, chunk_size=500, overlap=50) -> List[str]:
 
@@ -122,7 +154,6 @@ def chunk_text(text: str, chunk_size=500, overlap=50) -> List[str]:
     while start < length:
         end = start + chunk_size
         chunk = text[start:end]
-
         chunks.append(chunk)
 
         start += chunk_size - overlap
@@ -131,7 +162,7 @@ def chunk_text(text: str, chunk_size=500, overlap=50) -> List[str]:
 
 
 # ----------------------------------------
-# 🧠 MAIN PARSER FUNCTION
+# 🧠 MAIN PARSER
 # ----------------------------------------
 def parse_pdf(file_path: str) -> Dict:
 
@@ -140,16 +171,17 @@ def parse_pdf(file_path: str) -> Dict:
 
     try:
         text = extract_pdf_text(file_path)
-
         metadata = extract_metadata(file_path)
-
+        tables = extract_tables(file_path)
         chunks = chunk_text(text)
 
         return {
             "text": text,
             "chunks": chunks,
+            "tables": tables,
             "metadata": metadata,
             "num_chunks": len(chunks),
+            "num_tables": len(tables),
             "length": len(text)
         }
 
@@ -175,16 +207,21 @@ def quick_parse_pdf(file_path: str) -> Dict:
 
 
 # ----------------------------------------
-# 📊 SUMMARY (FOR UI)
+# 📊 SUMMARY FOR UI
 # ----------------------------------------
 def pdf_summary(parsed_pdf: Dict) -> Dict:
 
     if "error" in parsed_pdf:
-        return {"valid": False}
+        return {
+            "valid": False,
+            "error": parsed_pdf["error"]
+        }
 
     return {
         "valid": True,
         "pages": parsed_pdf.get("metadata", {}).get("pages", 0),
         "length": parsed_pdf.get("length", 0),
-        "chunks": parsed_pdf.get("num_chunks", 0)
+        "chunks": parsed_pdf.get("num_chunks", 0),
+        "tables": parsed_pdf.get("num_tables", 0)
     }
+    

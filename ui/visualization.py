@@ -1,33 +1,39 @@
 # ui/visualization.py
 
 """
-PCB Visualization Module
+Advanced PCB Visualization Module
 
-Features:
-- Draw component bounding boxes
-- Highlight issues (severity-based)
-- Heatmap overlay
-- Streamlit display
+✔ YOLO bounding boxes
+✔ Issue overlays (LLM)
+✔ Segmentation heatmap
+✔ Layer toggles
+✔ Safe image handling
+✔ Streamlit UI ready
 """
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
 import streamlit as st
+import os
 
 
 # ----------------------------------------
-# 🎨 COLOR MAP (SEVERITY)
+# 🎨 COLOR MAP
 # ----------------------------------------
 COLOR_MAP = {
-    "high": "red",
-    "medium": "orange",
-    "low": "yellow"
+    "high": (255, 0, 0),
+    "medium": (255, 165, 0),
+    "low": (255, 255, 0)
 }
 
 
 # ----------------------------------------
-# 🧠 LOAD IMAGE SAFELY
+# 🧠 SAFE IMAGE LOADER
 # ----------------------------------------
 def load_image(image_path):
+
+    if not image_path or not os.path.exists(image_path):
+        st.error("❌ Invalid image path")
+        return None
 
     try:
         return Image.open(image_path).convert("RGB")
@@ -37,65 +43,74 @@ def load_image(image_path):
 
 
 # ----------------------------------------
-# 📦 DRAW COMPONENT BOUNDING BOXES
+# 📦 DRAW COMPONENTS (YOLO)
 # ----------------------------------------
 def draw_components(image, components):
 
     draw = ImageDraw.Draw(image)
 
     for comp in components:
-        bbox = comp.get("bbox", [])
-        label = comp.get("component", "unknown")
 
-        if len(bbox) == 4:
+        bbox = comp.get("bbox")
+        label = comp.get("component", "unknown")
+        conf = comp.get("confidence", 0)
+
+        if isinstance(bbox, list) and len(bbox) == 4:
+
             draw.rectangle(bbox, outline="blue", width=2)
-            draw.text((bbox[0], bbox[1] - 10), label, fill="blue")
+
+            text = f"{label} ({round(conf,2)})"
+            draw.text((bbox[0], bbox[1] - 12), text, fill="blue")
 
     return image
 
 
 # ----------------------------------------
-# 🔥 DRAW ISSUES OVERLAY
+# 🔥 DRAW ISSUES (LLM)
 # ----------------------------------------
 def draw_issues(image, issues):
 
     draw = ImageDraw.Draw(image)
 
     for issue in issues:
+
+        loc = issue.get("location")
         severity = issue.get("severity", "medium").lower()
-        color = COLOR_MAP.get(severity, "white")
 
-        location = issue.get("location")
+        color = COLOR_MAP.get(severity, (255, 255, 255))
 
-        # If bounding box available
-        if isinstance(location, list) and len(location) == 4:
-            draw.rectangle(location, outline=color, width=3)
-            draw.text((location[0], location[1] - 10), severity.upper(), fill=color)
+        if isinstance(loc, list) and len(loc) == 4:
+
+            draw.rectangle(loc, outline=color, width=3)
+
+            label = f"{severity.upper()}"
+            draw.text((loc[0], loc[1] - 12), label, fill=color)
 
     return image
 
 
 # ----------------------------------------
-# 🌡️ HEATMAP EFFECT (SIMPLIFIED)
+# 🌡️ SEGMENTATION HEATMAP
 # ----------------------------------------
-def draw_heatmap(image, issues):
+def draw_segmentation(image, segmentation):
 
     draw = ImageDraw.Draw(image, "RGBA")
 
-    for issue in issues:
-        severity = issue.get("severity", "medium").lower()
+    regions = segmentation.get("regions", [])
 
-        opacity = 80
-        if severity == "high":
-            opacity = 150
-        elif severity == "medium":
-            opacity = 100
+    for r in regions:
 
-        location = issue.get("location")
+        bbox = r.get("bbox")
+        density = r.get("density", 0.5)
 
-        if isinstance(location, list) and len(location) == 4:
-            overlay_color = (255, 0, 0, opacity)
-            draw.rectangle(location, fill=overlay_color)
+        if isinstance(bbox, list) and len(bbox) == 4:
+
+            opacity = int(50 + density * 150)
+
+            draw.rectangle(
+                bbox,
+                fill=(255, 0, 0, opacity)
+            )
 
     return image
 
@@ -115,36 +130,41 @@ def component_summary(components):
 
 
 # ----------------------------------------
-# 🖼️ MAIN VISUALIZATION PIPELINE
+# 🖼️ CORE VISUALIZATION
 # ----------------------------------------
 def visualize_pcb(
     image_path,
     vision_output=None,
     issues=None,
-    show_boxes=True,
+    show_components=True,
+    show_issues=True,
     show_heatmap=True
 ):
 
     image = load_image(image_path)
 
     if image is None:
-        return
+        return None
 
     components = []
-    if vision_output:
-        components = vision_output.get("structured", {}).get("components", [])
+    segmentation = {}
 
-    # Draw components
-    if show_boxes:
+    if vision_output:
+        structured = vision_output.get("structured", {})
+        components = structured.get("components", [])
+        segmentation = structured.get("segmentation", {})
+
+    # Layer 1: Segmentation (bottom)
+    if show_heatmap:
+        image = draw_segmentation(image, segmentation)
+
+    # Layer 2: Components
+    if show_components:
         image = draw_components(image, components)
 
-    # Draw issues
-    if issues:
+    # Layer 3: Issues
+    if show_issues and issues:
         image = draw_issues(image, issues)
-
-    # Draw heatmap
-    if show_heatmap and issues:
-        image = draw_heatmap(image, issues)
 
     return image
 
@@ -156,13 +176,30 @@ def show_visualization(image_path, results):
 
     st.subheader("🖼️ PCB Visualization")
 
+    # ----------------------------------------
+    # 🎛️ LAYER CONTROLS
+    # ----------------------------------------
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        show_components = st.checkbox("Show Components", True)
+
+    with col2:
+        show_issues = st.checkbox("Show Issues", True)
+
+    with col3:
+        show_heatmap = st.checkbox("Show Heatmap", True)
+
     vision_output = results.get("vision", {})
     issues = results.get("final", {}).get("issues", [])
 
     image = visualize_pcb(
         image_path,
         vision_output=vision_output,
-        issues=issues
+        issues=issues,
+        show_components=show_components,
+        show_issues=show_issues,
+        show_heatmap=show_heatmap
     )
 
     if image:
@@ -172,21 +209,18 @@ def show_visualization(image_path, results):
     # 📊 COMPONENT STATS
     # ----------------------------------------
     components = vision_output.get("structured", {}).get("components", [])
-    summary = component_summary(components)
 
-    if summary:
+    if components:
         st.subheader("📊 Component Breakdown")
-        st.json(summary)
+        st.json(component_summary(components))
 
 
 # ----------------------------------------
-# 🔍 DEBUG VIEW
+# 🔍 DEBUG MODE
 # ----------------------------------------
 def debug_visualization(image_path, vision_output):
 
     st.subheader("🔍 Debug Visualization")
-
-    components = vision_output.get("structured", {}).get("components", [])
 
     image = visualize_pcb(
         image_path,
@@ -197,4 +231,4 @@ def debug_visualization(image_path, vision_output):
     if image:
         st.image(image)
 
-    st.json(components)
+    st.json(vision_output)

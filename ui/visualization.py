@@ -17,7 +17,7 @@ import os
 
 
 # ----------------------------------------
-# 🎨 COLOR MAP
+# COLOR MAP
 # ----------------------------------------
 COLOR_MAP = {
     "high": (255, 0, 0),
@@ -27,7 +27,7 @@ COLOR_MAP = {
 
 
 # ----------------------------------------
-# 🧠 SAFE IMAGE LOADER
+# SAFE IMAGE LOADER
 # ----------------------------------------
 def load_image(image_path):
 
@@ -43,7 +43,7 @@ def load_image(image_path):
 
 
 # ----------------------------------------
-# 📦 DRAW COMPONENTS (YOLO)
+# DRAW COMPONENTS (YOLO)
 # ----------------------------------------
 def draw_components(image, components):
 
@@ -66,7 +66,7 @@ def draw_components(image, components):
 
 
 # ----------------------------------------
-# 🔥 DRAW ISSUES (LLM)
+# DRAW ISSUES (LLM)
 # ----------------------------------------
 def draw_issues(image, issues):
 
@@ -90,7 +90,7 @@ def draw_issues(image, issues):
 
 
 # ----------------------------------------
-# 🌡️ SEGMENTATION HEATMAP
+# SEGMENTATION HEATMAP
 # ----------------------------------------
 def draw_segmentation(image, segmentation):
 
@@ -116,7 +116,7 @@ def draw_segmentation(image, segmentation):
 
 
 # ----------------------------------------
-# 📊 COMPONENT SUMMARY
+# COMPONENT SUMMARY
 # ----------------------------------------
 def component_summary(components):
 
@@ -130,7 +130,7 @@ def component_summary(components):
 
 
 # ----------------------------------------
-# 🖼️ CORE VISUALIZATION
+# CORE VISUALIZATION
 # ----------------------------------------
 def visualize_pcb(
     image_path,
@@ -170,11 +170,18 @@ def visualize_pcb(
 
 
 # ----------------------------------------
-# 📺 STREAMLIT DISPLAY
+#  STREAMLIT DISPLAY
 # ----------------------------------------
-def show_visualization(image_path, results):
 
-    st.subheader("🖼️ PCB Visualization")
+def show_visualization(
+    image_path,
+    results,
+    show_boxes=True,
+    show_heatmap=True
+):
+#def show_visualization(image_path, results):
+
+    st.subheader("PragyanAI PCB Visualization")
 
     # ----------------------------------------
     # 🎛️ LAYER CONTROLS
@@ -206,7 +213,7 @@ def show_visualization(image_path, results):
         st.image(image, use_container_width=True)
 
     # ----------------------------------------
-    # 📊 COMPONENT STATS
+    #  COMPONENT STATS
     # ----------------------------------------
     components = vision_output.get("structured", {}).get("components", [])
 

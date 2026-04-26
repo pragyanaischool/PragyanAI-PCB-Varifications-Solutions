@@ -1,7 +1,7 @@
 # app.py
 
 import os
-os.environ["ULTRALYTICS_NO_AUTO_INSTALL"] = "1"  # 🔥 FIX
+os.environ["ULTRALYTICS_NO_AUTO_INSTALL"] = "1"  
 
 import streamlit as st
 from PIL import Image
@@ -9,10 +9,9 @@ import traceback
 import sys
 
 # ----------------------------------------
-# 🚫 HARD BLOCK CV2 (CRITICAL FIX)
+# HARD BLOCK CV2 (CRITICAL FIX)
 # ----------------------------------------
-sys.modules['cv2'] = None
-
+#sys.modules['cv2'] = None
 # ----------------------------------------
 # Services
 # ----------------------------------------
@@ -38,19 +37,19 @@ from utils.file import save_uploaded_file, safe_delete
 
 
 # ----------------------------------------
-# 🎨 CONFIG
+# CONFIG
 # ----------------------------------------
 st.set_page_config(
     page_title="PragyanAI PCB Copilot",
     layout="wide",
     page_icon="⚡"
 )
-
-st.title("⚡ PragyanAI PCB Copilot")
+st.image("")
+st.title(" PragyanAI PCB Copilot")
 st.caption("Vision + YOLO + Segmentation + Multi-Agent AI + RAG")
 
 # ----------------------------------------
-# ⚙️ SIDEBAR
+#  SIDEBAR
 # ----------------------------------------
 with st.sidebar:
 
@@ -74,12 +73,10 @@ with st.sidebar:
     - Multi-Agent AI  
     - RAG (Docs + Chat)  
     """)
-
-    chat_controls()  # ✅ NEW
-
+    chat_controls()  
 
 # ----------------------------------------
-# 📤 PCB IMAGE UPLOAD
+#  PCB IMAGE UPLOAD
 # ----------------------------------------
 pcb_file = st.file_uploader(
     "Upload PCB Image",
@@ -87,11 +84,12 @@ pcb_file = st.file_uploader(
 )
 
 # ----------------------------------------
-# 📄 PDF (RAG INPUT)
+#  PDF (RAG INPUT)
 # ----------------------------------------
 doc_file = st.file_uploader(
     "Upload Datasheet / PDF (Optional)",
-    type=["pdf"]
+    type=["pdf", "csv", "xls"], 
+    accept_multiple_files=True
 )
 
 if doc_file:
@@ -112,7 +110,7 @@ if doc_file:
 
 
 # ----------------------------------------
-# 🖼️ PREVIEW (FIXED)
+#  PREVIEW (FIXED)
 # ----------------------------------------
 if pcb_file:
     try:
@@ -123,9 +121,9 @@ if pcb_file:
 
 
 # ----------------------------------------
-# 🚀 RUN ANALYSIS
+#  RUN ANALYSIS
 # ----------------------------------------
-if pcb_file and st.button("🚀 Run AI Analysis"):
+if pcb_file and st.button(" Run PCB - AI Analysis"):
 
     try:
         with st.spinner("Running AI pipeline..."):
@@ -169,14 +167,14 @@ if pcb_file and st.button("🚀 Run AI Analysis"):
         # 🧠 TABS
         # ----------------------------------------
         tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
-            "🧠 Final Report",
-            "🖼️ Visualization",
-            "🔍 Vision AI",
-            "📊 Insights",
-            "⚡ Domain",
-            "📊 Graph & Rules",
-            "🐞 Debug",
-            "💬 Chat AI"
+            " Final Report",
+            " Visualization",
+            " Vision AI",
+            " Insights",
+            "  Domain",
+            "  Graph & Rules",
+            "  Debug",
+            "  Chat AI"
         ])
 
         # ----------------------------------------
@@ -236,7 +234,7 @@ if pcb_file and st.button("🚀 Run AI Analysis"):
                 st.json(results)
 
         # ----------------------------------------
-        # 💬 CHAT (FINAL FIX)
+        #  CHAT (FINAL FIX)
         # ----------------------------------------
         with tab8:
             show_chat_panel(results)
@@ -252,7 +250,6 @@ if pcb_file and st.button("🚀 Run AI Analysis"):
         st.error("❌ Error")
         st.text(str(e))
         st.text(traceback.format_exc())
-
 
 # ----------------------------------------
 # FOOTER

@@ -13,6 +13,7 @@ from ai.orchestrator import run_full_analysis
 
 # UI
 from ui.visualization import show_visualization
+from ui.insights_panel import show_insights_panel   # ✅ NEW
 
 # Utils
 from utils.file import save_uploaded_file, safe_delete
@@ -30,6 +31,7 @@ st.set_page_config(
 st.title("⚡ PragyanAI PCB Copilot")
 st.caption("Vision + YOLO + Segmentation + Multi-Agent AI")
 
+
 # ----------------------------------------
 # ⚙️ SIDEBAR
 # ----------------------------------------
@@ -46,6 +48,7 @@ with st.sidebar:
     cleanup_files_flag = st.checkbox("Cleanup temp files", value=True)
 
     st.markdown("---")
+
     st.markdown("### 🔍 AI Stack")
     st.markdown("""
     - YOLO Detection  
@@ -53,6 +56,7 @@ with st.sidebar:
     - Segmentation (Routing Heatmap)  
     - Multi-Agent AI  
     """)
+
 
 # ----------------------------------------
 # 📤 FILE UPLOAD
@@ -62,15 +66,17 @@ pcb_file = st.file_uploader(
     type=["png", "jpg", "jpeg"]
 )
 
+
 # ----------------------------------------
-# 🖼️ PREVIEW
+# 🖼️ PREVIEW (FIXED SAFE)
 # ----------------------------------------
 if pcb_file:
     try:
         image = Image.open(pcb_file)
         st.image(image, caption="PCB Preview", use_container_width=True)
-    except:
-        st.warning("Preview not available")
+    except Exception as e:
+        st.warning(f"Preview not available: {e}")
+
 
 # ----------------------------------------
 # 🚀 RUN ANALYSIS
@@ -81,7 +87,7 @@ if pcb_file and st.button("🚀 Run AI Analysis"):
         with st.spinner("Running AI pipeline..."):
 
             # ----------------------------------------
-            # 💾 SAVE FILE (FIXED)
+            # 💾 SAVE FILE (SAFE)
             # ----------------------------------------
             file_path = save_uploaded_file(pcb_file)
 
@@ -90,7 +96,7 @@ if pcb_file and st.button("🚀 Run AI Analysis"):
                 st.stop()
 
             # ----------------------------------------
-            # 🧠 PARSE + GRAPH
+            # 🧠 PARSE + GRAPH (DEBUG / RULES)
             # ----------------------------------------
             pcb_data = parse_pcb(file_path)
             graph = build_graph(pcb_data)
@@ -102,7 +108,7 @@ if pcb_file and st.button("🚀 Run AI Analysis"):
             rule_issues = run_rules(graph)
 
             # ----------------------------------------
-            # 🤖 AI PIPELINE (UPDATED)
+            # 🤖 AI PIPELINE
             # ----------------------------------------
             result = run_full_analysis(image_path=file_path)
             results = result.get("results", {})
@@ -115,19 +121,20 @@ if pcb_file and st.button("🚀 Run AI Analysis"):
         st.success("✅ Analysis Completed")
 
         # ----------------------------------------
-        # 📊 TABS
+        # 📊 TABS (ENHANCED)
         # ----------------------------------------
-        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+        tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
             "🧠 Final Report",
             "🖼️ Visual Debugger",
-            "🔍 Vision AI (YOLO + Segmentation)",
+            "🔍 Vision AI",
+            "📊 Insights Panel",   # ✅ NEW
             "⚡ Domain Insights",
             "📊 Graph & Rules",
             "🐞 Debug"
         ])
 
         # ----------------------------------------
-        # 🧠 REPORT
+        # 🧠 FINAL REPORT
         # ----------------------------------------
         with tab1:
 
@@ -149,13 +156,13 @@ if pcb_file and st.button("🚀 Run AI Analysis"):
             )
 
         # ----------------------------------------
-        # 🖼️ VISUALIZATION
+        # 🖼️ VISUAL DEBUGGER
         # ----------------------------------------
         with tab2:
             show_visualization(file_path, results)
 
         # ----------------------------------------
-        # 🔍 VISION AI PANEL (NEW)
+        # 🔍 VISION AI (YOLO + SEGMENTATION)
         # ----------------------------------------
         with tab3:
 
@@ -166,41 +173,60 @@ if pcb_file and st.button("🚀 Run AI Analysis"):
             segmentation = structured.get("segmentation", {})
             ocr = structured.get("ocr", {})
 
-            st.subheader("📦 YOLO Detection")
-            st.json(components)
+            col1, col2 = st.columns(2)
 
-            st.subheader("🌡️ Segmentation (Routing Heatmap)")
-            st.json(segmentation)
+            with col1:
+                st.subheader("📦 YOLO Detection")
+                st.json(components)
+
+            with col2:
+                st.subheader("🌡️ Segmentation")
+                st.json(segmentation)
 
             st.subheader("🔤 OCR Extraction")
             st.json(ocr)
 
         # ----------------------------------------
-        # ⚡ DOMAIN AGENTS
+        # 🧠 INSIGHTS PANEL (NEW)
         # ----------------------------------------
         with tab4:
+            show_insights_panel(results)
+
+        # ----------------------------------------
+        # ⚡ DOMAIN AGENTS
+        # ----------------------------------------
+        with tab5:
 
             col1, col2 = st.columns(2)
 
             with col1:
+                st.subheader("⚡ Power")
                 st.json(results.get("power"))
+
+                st.subheader("🔌 Signal")
                 st.json(results.get("signal"))
 
             with col2:
+                st.subheader("🌡️ Thermal")
                 st.json(results.get("thermal"))
+
+                st.subheader("🧩 Layout")
                 st.json(results.get("layout"))
 
         # ----------------------------------------
         # 📊 GRAPH + RULES
         # ----------------------------------------
-        with tab5:
+        with tab6:
+            st.subheader("Graph Summary")
             st.json(g_summary)
+
+            st.subheader("Rule Issues")
             st.json(rule_issues)
 
         # ----------------------------------------
         # 🐞 DEBUG
         # ----------------------------------------
-        with tab6:
+        with tab7:
             if show_debug:
                 st.json(result)
 
@@ -213,9 +239,9 @@ if pcb_file and st.button("🚀 Run AI Analysis"):
     except Exception as e:
 
         st.error("❌ Error during processing")
-
         st.text(str(e))
         st.text(traceback.format_exc())
+
 
 # ----------------------------------------
 # FOOTER

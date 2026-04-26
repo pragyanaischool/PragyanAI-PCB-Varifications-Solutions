@@ -116,24 +116,19 @@ def component_summary(components):
         summary[name] = summary.get(name, 0) + 1
 
     return summary
+
 # ----------------------------------------
-# CORE VISUALIZATION
+#  CORE VISUALIZATION
 # ----------------------------------------
-#def visualize_pcb(
-#    image_path,
-#    vision_output=None,
-#    issues=None,
-#    show_components=True,
-#    show_issues=True,
-#    show_heatmap=True
-#):
+
 def visualize_pcb(
     image_path,
     vision_output=None,
     issues=None,
-    show_boxes=True,
+    show_components=True,
+    show_issues=True,
     show_heatmap=True
-):
+    ):
     image = load_image(image_path)
     if image is None:
         return None
@@ -189,21 +184,14 @@ def show_visualization(
     vision_output = results.get("vision", {})
     issues = results.get("final", {}).get("issues", [])
 
-   # image = visualize_pcb(
-   #     image_path,
-   #     vision_output=vision_output,
-   #     issues=issues,
-   #     show_components=show_components,
-   #     show_issues=show_issues,
-   #     show_heatmap=show_heatmap
-   #)
     image = visualize_pcb(
         image_path,
         vision_output=vision_output,
         issues=issues,
-        show_boxes=show_boxes,
+        show_components=show_components,
+        show_issues=show_issues,
         show_heatmap=show_heatmap
-    )
+       )
     if image:
         st.image(image, use_container_width=True)
 

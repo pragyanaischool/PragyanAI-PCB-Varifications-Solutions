@@ -62,7 +62,6 @@ st.set_page_config(
 st.image("PragyanAI_Transperent.png")
 st.title(" PragyanAI PCB Copilot")
 st.caption(" Vision + YOLO + Segmentation + Multi-Agent AI + RAG")
-
 # ----------------------------------------
 #  SIDEBAR
 # ----------------------------------------
@@ -89,7 +88,6 @@ with st.sidebar:
     - RAG (Docs + Chat)  
     """)
     chat_controls()  
-
 # ----------------------------------------
 #  PCB IMAGE UPLOAD
 # ----------------------------------------
@@ -97,7 +95,6 @@ pcb_file = st.file_uploader(
     "Upload PCB Image",
     type=["png", "jpg", "jpeg"]
 )
-
 # ----------------------------------------
 #  PDF (RAG INPUT)
 # ----------------------------------------
@@ -110,19 +107,14 @@ if doc_file:
 
     try:
         doc_path = save_uploaded_file(doc_file)
-
         pdf_data = parse_pdf(doc_path)
-
         if "text" in pdf_data and pdf_data["text"]:
             build_vector_store(pdf_data["text"])
             st.success("📚 Knowledge base updated")
         else:
             st.warning("⚠️ No text extracted")
-
     except Exception as e:
         st.error(f"PDF error: {e}")
-
-
 # ----------------------------------------
 #  PREVIEW (FIXED)
 # ----------------------------------------
@@ -132,33 +124,26 @@ if pcb_file:
         st.image(image, caption="PCB Preview", use_container_width=True)
     except Exception as e:
         st.warning(f"Preview not available: {e}")
-
 # ----------------------------------------
 #  RUN ANALYSIS
 # ----------------------------------------
 if pcb_file and st.button(" Run PCB - AI Analysis"):
-
     try:
         with st.spinner("Running AI pipeline..."):
-
             file_path = save_uploaded_file(pcb_file)
-
             if not file_path or not os.path.exists(file_path):
                 st.error("❌ File saving failed")
                 st.stop()
-
             # ----------------------------------------
             # PARSER + GRAPH
             # ----------------------------------------
             pcb_data = parse_pcb(file_path)
             graph = build_graph(pcb_data)
             g_summary = graph_summary(graph)
-
             # ----------------------------------------
             # RULE ENGINE
             # ----------------------------------------
             rule_issues = run_rules(graph)
-
             # ----------------------------------------
             # AI PIPELINE
             # ----------------------------------------
@@ -168,7 +153,6 @@ if pcb_file and st.button(" Run PCB - AI Analysis"):
                 gnn_output=None,
                 ocr_text=None
             )
-
             # ----------------------------------------
             # REPORT
             # ----------------------------------------
@@ -183,8 +167,7 @@ if pcb_file and st.button(" Run PCB - AI Analysis"):
             else:
                 st.warning("⚠️ Run analysis first")
                 st.stop()
-                st.success("✅ Analysis Completed")
-            
+                st.success("✅ Analysis Completed")            
         # ----------------------------------------
         #  TABS
         # ----------------------------------------
@@ -206,19 +189,24 @@ if pcb_file and st.button(" Run PCB - AI Analysis"):
             st.metric("PCB Score", report.get("score", 0))
             st.write(report.get("summary"))
             st.json(report.get("issues", []))
-
             st.download_button(
                 "Download Report",
                 report_to_markdown(report),
                 file_name="pcb_report.md"
             )
-
         # ----------------------------------------
         # VISUALIZATION
         # ----------------------------------------
         with tab2:
-            show_visualization(file_path, results)
-
+            #show_visualization(file_path, results)
+            show_boxes = st.checkbox("Show Components", True)
+            show_heatmap = st.checkbox("Show Heatmap", True)
+            show_visualization(
+                file_path,
+                results,
+                show_boxes=show_boxes,
+                show_heatmap=show_heatmap
+            )    
         # ----------------------------------------
         # VISION
         # ----------------------------------------

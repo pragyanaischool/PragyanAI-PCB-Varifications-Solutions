@@ -21,10 +21,9 @@ from ui.visualization import show_visualization
 from ui.insights_panel import show_insights_panel
 from ui.chat_panel import show_chat_panel   # ✅ NEW
 import sys
-sys.modules['cv2'] = None
+
 # Utils
 from utils.file import save_uploaded_file, safe_delete
-
 
 # ----------------------------------------
 # 🎨 CONFIG

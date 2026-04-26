@@ -198,15 +198,8 @@ if pcb_file and st.button(" Run PCB - AI Analysis"):
         # VISUALIZATION
         # ----------------------------------------
         with tab2:
-            #show_visualization(file_path, results)
-            show_boxes = st.checkbox("Show Components", True)
-            show_heatmap = st.checkbox("Show Heatmap", True)
-            show_visualization(
-                file_path,
-                results,
-                show_boxes=show_boxes,
-                show_heatmap=show_heatmap
-            )    
+            show_visualization(file_path, results)
+            
         # ----------------------------------------
         # VISION
         # ----------------------------------------

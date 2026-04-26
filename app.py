@@ -6,7 +6,6 @@ import streamlit as st
 from PIL import Image
 import traceback
 import sys
-
 # ----------------------------------------
 # HARD BLOCK CV2 (CRITICAL FIX)
 # ----------------------------------------
@@ -174,10 +173,19 @@ if pcb_file and st.button(" Run PCB - AI Analysis"):
             # ----------------------------------------
             # REPORT
             # ----------------------------------------
-            report = build_full_system_report(results)
-
-        st.success("✅ Analysis Completed")
-
+            #report = build_full_system_report(results)
+            if results:
+                report = build_full_system_report(results)
+                col1, col2, col3, col4 = st.columns(4)
+                col1.metric("PCB Score", report.get("score", 0))
+                col2.metric("Issues", report.get("issue_count", 0))
+                col3.metric("High Severity", report.get("severity", {}).get("high", 0))
+                col4.metric("Components", len(results.get("vision", {}).get("structured", {}).get("components", [])))
+            else:
+                st.warning("⚠️ Run analysis first")
+                st.stop()
+                st.success("✅ Analysis Completed")
+            
         # ----------------------------------------
         #  TABS
         # ----------------------------------------
@@ -266,14 +274,6 @@ if pcb_file and st.button(" Run PCB - AI Analysis"):
         st.text(str(e))
         st.text(traceback.format_exc())
 
-col1, col2, col3, col4 = st.columns(4)
-
-report = build_full_system_report(results)
-
-col1.metric("PCB Score", report.get("score", 0))
-col2.metric("Issues", report.get("issue_count", 0))
-col3.metric("High Severity", report.get("severity", {}).get("high", 0))
-col4.metric("Components", len(results.get("vision", {}).get("structured", {}).get("components", [])))
 # ----------------------------------------
 # FOOTER
 # ----------------------------------------

@@ -73,13 +73,13 @@ def meta_agent(memory):
 # ----------------------------------------
 def run_full_analysis(
     image_path,
-    graph_summary=None,
+    graph_summary=None,          # ✅ FIX: added
     graph_summary_input=None,
     gnn_output=None,
     ocr_text=None
 ):
 
-    # ✅ Normalize input (CRITICAL FIX)
+    # ✅ FIX: normalize both inputs
     if graph_summary_input is None:
         graph_summary_input = graph_summary
 
@@ -110,9 +110,12 @@ def run_full_analysis(
     if graph_summary_input:
         memory.update("graph", graph_summary_input)
     else:
-        graph = safe_run("graph", build_graph,
-                         memory.get("vision"),
-                         memory.get("ocr"))
+        graph = safe_run(
+            "graph",
+            build_graph,
+            memory.get("vision"),
+            memory.get("ocr")
+        )
         memory.update("graph", graph["data"])
         debug["graph"] = graph
         timings["graph"] = graph["time"]
@@ -120,9 +123,12 @@ def run_full_analysis(
     # ----------------------------------------
     # 🤖 GNN
     # ----------------------------------------
-    gnn = safe_run("gnn", run_gnn_agent,
-                   memory.get("graph"),
-                   gnn_output)
+    gnn = safe_run(
+        "gnn",
+        run_gnn_agent,
+        memory.get("graph"),
+        gnn_output
+    )
     memory.update("gnn", gnn["data"])
     debug["gnn"] = gnn
     timings["gnn"] = gnn["time"]
@@ -154,6 +160,9 @@ def run_full_analysis(
     # ----------------------------------------
     final = safe_run("meta", meta_agent, memory)
 
+    # ----------------------------------------
+    # 📦 OUTPUT
+    # ----------------------------------------
     return {
         "vision": memory.get("vision"),
         "ocr": memory.get("ocr"),
@@ -181,3 +190,4 @@ def cached_full_analysis(image_path, graph_summary, gnn_output, ocr_text):
         gnn_output=gnn_output,
         ocr_text=ocr_text
     )
+    

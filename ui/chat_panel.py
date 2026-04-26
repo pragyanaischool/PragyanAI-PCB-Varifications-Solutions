@@ -8,13 +8,13 @@ from ai.memory import PCBMemory
 
 
 # ----------------------------------------
-# 🧠 INIT SESSION STATE
+#  INIT SESSION STATE
 # ----------------------------------------
 def init_chat():
 
     if "pcb_memory" not in st.session_state:
         st.session_state.pcb_memory = PCBMemory()
-
+    
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
 
@@ -23,15 +23,12 @@ def init_chat():
 
 
 # ----------------------------------------
-# 🧠 LOAD PCB ANALYSIS INTO MEMORY
+#  LOAD PCB ANALYSIS INTO MEMORY
 # ----------------------------------------
 def load_analysis_into_memory(results):
-
     memory = st.session_state.pcb_memory
-
     if not results:
         return
-
     # Add all system outputs
     for key in [
         "vision",
@@ -47,13 +44,111 @@ def load_analysis_into_memory(results):
         if key in results:
             memory.update(key, results[key])
 
-
 # ----------------------------------------
-# 💬 MAIN CHAT PANEL
+#  MAIN CHAT PANEL
+# ----------------------------------------
+# ----------------------------------------
+# 💬 CHAT PANEL
 # ----------------------------------------
 def show_chat_panel(results):
 
-    st.subheader("💬 PCB AI Assistant")
+    st.subheader("🤖 PragyanAI PCB AI Assistant")
+
+    init_chat()
+
+    # ----------------------------------------
+    #  LOAD ANALYSIS INTO MEMORY (ONCE)
+    # ----------------------------------------
+    if results and not st.session_state.get("analysis_loaded", False):
+        load_analysis_into_memory(results)
+        st.session_state.analysis_loaded = True
+
+    memory = st.session_state.pcb_memory
+
+    # ----------------------------------------
+    #  SUGGESTIONS (ONLY IF EMPTY CHAT)
+    # ----------------------------------------
+    if not st.session_state.chat_history:
+
+        st.info("Ask anything about your PCB design, issues, or fixes.")
+
+        st.markdown("### 💡 Try asking:")
+
+        suggestions = [
+            "What are the major issues?",
+            "How to fix power problems?",
+            "Explain signal issues",
+            "Is layout optimized?"
+        ]
+
+        cols = st.columns(2)
+
+        for i, q in enumerate(suggestions):
+            if cols[i % 2].button(q):
+
+                # Store question (DO NOT directly append)
+                st.session_state.pending_question = q
+                st.rerun()
+
+    # ----------------------------------------
+    #  DISPLAY CHAT HISTORY
+    # ----------------------------------------
+    for msg in st.session_state.chat_history:
+
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+            st.caption(msg["time"])
+
+    # ----------------------------------------
+    #  USER INPUT (UNIFIED)
+    # ----------------------------------------
+    user_input = st.chat_input("Ask about your PCB...")
+
+    # Handle suggestion click
+    if "pending_question" in st.session_state:
+        user_input = st.session_state.pop("pending_question")
+
+    # ----------------------------------------
+    #  PROCESS INPUT
+    # ----------------------------------------
+    if user_input:
+
+        timestamp = datetime.now().strftime("%H:%M:%S")
+
+        # Save user message
+        st.session_state.chat_history.append({
+            "role": "user",
+            "content": user_input,
+            "time": timestamp
+        })
+
+        # Display user message
+        with st.chat_message("user"):
+            st.markdown(user_input)
+
+        # ----------------------------------------
+        #  AI RESPONSE (RAG)
+        # ----------------------------------------
+        with st.chat_message("assistant"):
+            with st.spinner("🧠 Thinking..."):
+
+                try:
+                    response = chat_with_rag(user_input, memory)
+                except Exception as e:
+                    response = f"⚠️ Error: {str(e)}"
+
+                st.markdown(response)
+
+        # Save AI response
+        st.session_state.chat_history.append({
+            "role": "assistant",
+            "content": response,
+            "time": timestamp
+        })
+'''
+def show_chat_panel(results):
+
+    st.subheader("PragyanAI PCB AI Assistant")
 
     init_chat()
 
@@ -64,8 +159,9 @@ def show_chat_panel(results):
     memory = st.session_state.pcb_memory
 
     # ----------------------------------------
-    # 📜 DISPLAY CHAT HISTORY
+    #  DISPLAY CHAT HISTORY
     # ----------------------------------------
+    
     for msg in st.session_state.chat_history:
 
         role = msg["role"]
@@ -112,10 +208,9 @@ def show_chat_panel(results):
             "content": response,
             "time": timestamp
         })
-
-
+'''
 # ----------------------------------------
-# 🧠 SIDEBAR CONTROLS
+#  SIDEBAR CONTROLS
 # ----------------------------------------
 def chat_controls():
 

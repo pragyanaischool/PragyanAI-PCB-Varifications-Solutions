@@ -34,7 +34,24 @@ from ui.chat_panel import show_chat_panel, chat_controls
 # Utils
 from utils.file import save_uploaded_file, safe_delete
 
-
+st.markdown("""
+<style>
+.block-container {
+    padding-top: 2rem;
+}
+h1, h2, h3 {
+    font-weight: 600;
+}
+.stTabs [data-baseweb="tab"] {
+    font-size: 16px;
+    padding: 10px 20px;
+}
+.stButton>button {
+    border-radius: 10px;
+    height: 45px;
+}
+</style>
+""", unsafe_allow_html=True)
 # ----------------------------------------
 # CONFIG
 # ----------------------------------------

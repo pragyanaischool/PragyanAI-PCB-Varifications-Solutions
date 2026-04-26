@@ -1,6 +1,7 @@
 import streamlit as st
 from PIL import Image
 import traceback
+import os
 
 # Services
 from services.parser import parse_pcb
@@ -8,12 +9,17 @@ from services.graph import build_graph, graph_summary
 from services.rules import run_rules
 from services.report import build_full_system_report, report_to_markdown
 
+# NEW: PDF + RAG
+from services.pdf_parser import parse_pdf
+from ai.vector_store import build_vector_store
+
 # AI
 from ai.orchestrator import run_full_analysis
 
 # UI
 from ui.visualization import show_visualization
-from ui.insights_panel import show_insights_panel   # ✅ NEW
+from ui.insights_panel import show_insights_panel
+from ui.chat_panel import show_chat_panel   # ✅ NEW
 
 # Utils
 from utils.file import save_uploaded_file, safe_delete
@@ -29,7 +35,7 @@ st.set_page_config(
 )
 
 st.title("⚡ PragyanAI PCB Copilot")
-st.caption("Vision + YOLO + Segmentation + Multi-Agent AI")
+st.caption("Vision + YOLO + Segmentation + Multi-Agent AI + RAG")
 
 
 # ----------------------------------------
@@ -53,13 +59,14 @@ with st.sidebar:
     st.markdown("""
     - YOLO Detection  
     - OCR Extraction  
-    - Segmentation (Routing Heatmap)  
+    - Segmentation  
     - Multi-Agent AI  
+    - RAG (Docs + Chat)  
     """)
 
 
 # ----------------------------------------
-# 📤 FILE UPLOAD
+# 📤 PCB IMAGE UPLOAD
 # ----------------------------------------
 pcb_file = st.file_uploader(
     "Upload PCB Image",
@@ -68,11 +75,38 @@ pcb_file = st.file_uploader(
 
 
 # ----------------------------------------
+# 📄 PDF DATASHEET UPLOAD (NEW)
+# ----------------------------------------
+doc_file = st.file_uploader(
+    "Upload Datasheet / PDF (Optional)",
+    type=["pdf"]
+)
+
+if doc_file:
+
+    try:
+        doc_path = save_uploaded_file(doc_file)
+
+        pdf_data = parse_pdf(doc_path)
+
+        if "text" in pdf_data and pdf_data["text"]:
+
+            build_vector_store(pdf_data["text"])
+            st.success("📚 Knowledge base updated (RAG ready)")
+
+        else:
+            st.warning("⚠️ No text extracted from PDF")
+
+    except Exception as e:
+        st.error(f"PDF processing error: {e}")
+
+
+# ----------------------------------------
 # 🖼️ PREVIEW (FIXED SAFE)
 # ----------------------------------------
 if pcb_file:
     try:
-        image = Image.open(pcb_file)
+        image = Image.open(pcb_file.getvalue())  # ✅ FIXED
         st.image(image, caption="PCB Preview", use_container_width=True)
     except Exception as e:
         st.warning(f"Preview not available: {e}")
@@ -87,16 +121,16 @@ if pcb_file and st.button("🚀 Run AI Analysis"):
         with st.spinner("Running AI pipeline..."):
 
             # ----------------------------------------
-            # 💾 SAVE FILE (SAFE)
+            # 💾 SAVE FILE
             # ----------------------------------------
             file_path = save_uploaded_file(pcb_file)
 
-            if not file_path:
+            if not file_path or not os.path.exists(file_path):
                 st.error("❌ File saving failed")
                 st.stop()
 
             # ----------------------------------------
-            # 🧠 PARSE + GRAPH (DEBUG / RULES)
+            # 🧠 PARSE + GRAPH
             # ----------------------------------------
             pcb_data = parse_pcb(file_path)
             graph = build_graph(pcb_data)
@@ -123,14 +157,15 @@ if pcb_file and st.button("🚀 Run AI Analysis"):
         # ----------------------------------------
         # 📊 TABS (ENHANCED)
         # ----------------------------------------
-        tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+        tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
             "🧠 Final Report",
             "🖼️ Visual Debugger",
             "🔍 Vision AI",
-            "📊 Insights Panel",   # ✅ NEW
+            "📊 Insights Panel",
             "⚡ Domain Insights",
             "📊 Graph & Rules",
-            "🐞 Debug"
+            "🐞 Debug",
+            "💬 Chat AI"   # ✅ NEW
         ])
 
         # ----------------------------------------
@@ -162,32 +197,28 @@ if pcb_file and st.button("🚀 Run AI Analysis"):
             show_visualization(file_path, results)
 
         # ----------------------------------------
-        # 🔍 VISION AI (YOLO + SEGMENTATION)
+        # 🔍 VISION AI
         # ----------------------------------------
         with tab3:
 
             vision = results.get("vision", {})
             structured = vision.get("structured", {})
 
-            components = structured.get("components", [])
-            segmentation = structured.get("segmentation", {})
-            ocr = structured.get("ocr", {})
-
             col1, col2 = st.columns(2)
 
             with col1:
                 st.subheader("📦 YOLO Detection")
-                st.json(components)
+                st.json(structured.get("components", []))
 
             with col2:
                 st.subheader("🌡️ Segmentation")
-                st.json(segmentation)
+                st.json(structured.get("segmentation", {}))
 
-            st.subheader("🔤 OCR Extraction")
-            st.json(ocr)
+            st.subheader("🔤 OCR")
+            st.json(structured.get("ocr", {}))
 
         # ----------------------------------------
-        # 🧠 INSIGHTS PANEL (NEW)
+        # 🧠 INSIGHTS
         # ----------------------------------------
         with tab4:
             show_insights_panel(results)
@@ -229,6 +260,12 @@ if pcb_file and st.button("🚀 Run AI Analysis"):
         with tab7:
             if show_debug:
                 st.json(result)
+
+        # ----------------------------------------
+        # 💬 CHAT AI (NEW)
+        # ----------------------------------------
+        with tab8:
+            show_chat_panel(results)
 
         # ----------------------------------------
         # 🧹 CLEANUP

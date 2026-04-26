@@ -52,7 +52,7 @@ def load_analysis_into_memory(results):
 # ----------------------------------------
 def show_chat_panel(results):
 
-    st.subheader("🤖 PragyanAI PCB AI Assistant")
+    st.subheader(" PragyanAI PCB AI Assistant")
 
     init_chat()
 
@@ -72,7 +72,7 @@ def show_chat_panel(results):
 
         st.info("Ask anything about your PCB design, issues, or fixes.")
 
-        st.markdown("### 💡 Try asking:")
+        st.markdown("###  Try asking:")
 
         suggestions = [
             "What are the major issues?",
@@ -103,7 +103,7 @@ def show_chat_panel(results):
     #  USER INPUT (UNIFIED)
     # ----------------------------------------
     user_input = st.chat_input("Ask about your PCB...")
-
+    st.markdown(user_input)
     # Handle suggestion click
     if "pending_question" in st.session_state:
         user_input = st.session_state.pop("pending_question")
@@ -114,7 +114,7 @@ def show_chat_panel(results):
     if user_input:
 
         timestamp = datetime.now().strftime("%H:%M:%S")
-
+    
         # Save user message
         st.session_state.chat_history.append({
             "role": "user",
@@ -130,7 +130,7 @@ def show_chat_panel(results):
         #  AI RESPONSE (RAG)
         # ----------------------------------------
         with st.chat_message("assistant"):
-            with st.spinner("🧠 Thinking..."):
+            with st.spinner(" Thinking..."):
 
                 try:
                     response = chat_with_rag(user_input, memory)

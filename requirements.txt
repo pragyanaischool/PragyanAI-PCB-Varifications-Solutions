@@ -11,7 +11,9 @@ langchain
 langchain-core
 langchain-community
 langchain-groq
-
+faiss-cpu 
+langchain-huggingface 
+langchain-text-splitters
 # -----------------------------
 # 🤖 Hugging Face / VLM
 # -----------------------------

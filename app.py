@@ -103,8 +103,7 @@ pcb_file = st.file_uploader(
 # ----------------------------------------
 doc_file = st.file_uploader(
     "Upload Datasheet / PDF (Optional)",
-    type=["pdf", "csv", "xls"], 
-    accept_multiple_files=True
+    type=["pdf"]
 )
 
 if doc_file:

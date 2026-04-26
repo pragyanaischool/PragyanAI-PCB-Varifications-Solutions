@@ -70,3 +70,4 @@ seaborn
 # 🚀 Performance / Compatibility
 # -----------------------------
 typing-extensions
+pi-heif

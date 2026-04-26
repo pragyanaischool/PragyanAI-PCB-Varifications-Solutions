@@ -95,54 +95,46 @@ def draw_issues(image, issues):
 def draw_segmentation(image, segmentation):
 
     draw = ImageDraw.Draw(image, "RGBA")
-
     regions = segmentation.get("regions", [])
-
     for r in regions:
-
         bbox = r.get("bbox")
         density = r.get("density", 0.5)
-
         if isinstance(bbox, list) and len(bbox) == 4:
-
             opacity = int(50 + density * 150)
-
             draw.rectangle(
                 bbox,
                 fill=(255, 0, 0, opacity)
             )
-
     return image
-
-
 # ----------------------------------------
 # COMPONENT SUMMARY
 # ----------------------------------------
 def component_summary(components):
-
     summary = {}
-
     for comp in components:
         name = comp.get("component", "unknown")
         summary[name] = summary.get(name, 0) + 1
 
     return summary
-
-
 # ----------------------------------------
 # CORE VISUALIZATION
 # ----------------------------------------
+#def visualize_pcb(
+#    image_path,
+#    vision_output=None,
+#    issues=None,
+#    show_components=True,
+#    show_issues=True,
+#    show_heatmap=True
+#):
 def visualize_pcb(
     image_path,
     vision_output=None,
     issues=None,
-    show_components=True,
-    show_issues=True,
+    show_boxes=True,
     show_heatmap=True
 ):
-
     image = load_image(image_path)
-
     if image is None:
         return None
 
@@ -157,7 +149,8 @@ def visualize_pcb(
     # Layer 1: Segmentation (bottom)
     if show_heatmap:
         image = draw_segmentation(image, segmentation)
-
+    
+    show_components = True
     # Layer 2: Components
     if show_components:
         image = draw_components(image, components)
@@ -165,14 +158,10 @@ def visualize_pcb(
     # Layer 3: Issues
     if show_issues and issues:
         image = draw_issues(image, issues)
-
     return image
-
-
 # ----------------------------------------
 #  STREAMLIT DISPLAY
 # ----------------------------------------
-
 def show_visualization(
     image_path,
     results,
@@ -200,15 +189,21 @@ def show_visualization(
     vision_output = results.get("vision", {})
     issues = results.get("final", {}).get("issues", [])
 
+   # image = visualize_pcb(
+   #     image_path,
+   #     vision_output=vision_output,
+   #     issues=issues,
+   #     show_components=show_components,
+   #     show_issues=show_issues,
+   #     show_heatmap=show_heatmap
+   #)
     image = visualize_pcb(
         image_path,
         vision_output=vision_output,
         issues=issues,
-        show_components=show_components,
-        show_issues=show_issues,
+        show_boxes=show_boxes,
         show_heatmap=show_heatmap
     )
-
     if image:
         st.image(image, use_container_width=True)
 

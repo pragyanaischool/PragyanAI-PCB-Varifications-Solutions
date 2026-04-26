@@ -135,7 +135,6 @@ if pcb_file:
     except Exception as e:
         st.warning(f"Preview not available: {e}")
 
-
 # ----------------------------------------
 #  RUN ANALYSIS
 # ----------------------------------------
@@ -267,6 +266,14 @@ if pcb_file and st.button(" Run PCB - AI Analysis"):
         st.text(str(e))
         st.text(traceback.format_exc())
 
+col1, col2, col3, col4 = st.columns(4)
+
+report = build_full_system_report(results)
+
+col1.metric("PCB Score", report.get("score", 0))
+col2.metric("Issues", report.get("issue_count", 0))
+col3.metric("High Severity", report.get("severity", {}).get("high", 0))
+col4.metric("Components", len(results.get("vision", {}).get("structured", {}).get("components", [])))
 # ----------------------------------------
 # FOOTER
 # ----------------------------------------

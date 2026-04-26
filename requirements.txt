@@ -28,7 +28,7 @@ pillow
 numpy
 # YOLO (Ultralytics)
 ultralytics>=8.2.0
-
+opencv-python-headless
 # -----------------------------
 # 🧠 Deep Learning (for GNN + segmentation)
 # -----------------------------

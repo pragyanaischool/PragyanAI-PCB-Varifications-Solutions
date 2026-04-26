@@ -1,5 +1,4 @@
 # app.py
-
 import os
 os.environ["ULTRALYTICS_NO_AUTO_INSTALL"] = "1"  
 
@@ -44,9 +43,9 @@ st.set_page_config(
     layout="wide",
     page_icon="⚡"
 )
-st.image("")
+st.image("PragyanAI_Transperent.png")
 st.title(" PragyanAI PCB Copilot")
-st.caption("Vision + YOLO + Segmentation + Multi-Agent AI + RAG")
+st.caption(" Vision + YOLO + Segmentation + Multi-Agent AI + RAG")
 
 # ----------------------------------------
 #  SIDEBAR
@@ -65,7 +64,7 @@ with st.sidebar:
 
     st.markdown("---")
 
-    st.markdown("### 🔍 AI Stack")
+    st.markdown("### PCB Varification - AI Stack")
     st.markdown("""
     - YOLO Detection  
     - OCR Extraction  
@@ -164,13 +163,13 @@ if pcb_file and st.button(" Run PCB - AI Analysis"):
         st.success("✅ Analysis Completed")
 
         # ----------------------------------------
-        # 🧠 TABS
+        #  TABS
         # ----------------------------------------
         tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
-            " Final Report",
-            " Visualization",
-            " Vision AI",
-            " Insights",
+            "  Final Report",
+            "  Visualization",
+            "  Vision AI",
+            "  Insights",
             "  Domain",
             "  Graph & Rules",
             "  Debug",

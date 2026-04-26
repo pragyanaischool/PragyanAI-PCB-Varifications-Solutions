@@ -3,12 +3,12 @@
 """
 File Utilities for PCB AI System
 
-Handles:
-✔ Streamlit file upload safely
-✔ File validation
-✔ Hashing (for caching/dedup)
-✔ Cleanup
-✔ Debug-safe operations
+✔ Streamlit-safe file saving (fixes read() issues)
+✔ Validation (size + type)
+✔ Hashing (for caching)
+✔ Safe cleanup
+✔ Debug-friendly
+✔ Front/back PCB support
 """
 
 import os
@@ -22,8 +22,8 @@ from typing import Optional, Tuple
 # ----------------------------------------
 def save_uploaded_file(uploaded_file) -> Optional[str]:
     """
-    Save a Streamlit UploadedFile to a temp file.
-    Returns file path or None.
+    Save Streamlit UploadedFile safely.
+    Uses getvalue() instead of read() (critical fix).
     """
 
     if uploaded_file is None:
@@ -31,22 +31,18 @@ def save_uploaded_file(uploaded_file) -> Optional[str]:
         return None
 
     try:
+        # 🔥 CRITICAL FIX: use getvalue() instead of read()
+        file_bytes = uploaded_file.getvalue()
+
+        if not file_bytes:
+            print("[FILE] Empty file data")
+            return None
+
         suffix = _infer_suffix(uploaded_file.name)
 
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-
-            data = uploaded_file.read()
-
-            if not data:
-                print("[FILE] Empty file")
-                return None
-
-            tmp.write(data)
-
-            # 🔥 CRITICAL FIX (prevents image load errors)
-            tmp.flush()
-            tmp.seek(0)
-
+            tmp.write(file_bytes)
+            tmp.flush()  # ensure write
             return tmp.name
 
     except Exception as e:
@@ -67,7 +63,6 @@ def save_bytes_to_file(data: bytes, suffix: str = ".bin") -> Optional[str]:
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
             tmp.write(data)
             tmp.flush()
-            tmp.seek(0)
             return tmp.name
 
     except Exception as e:
@@ -100,7 +95,7 @@ def read_file_text(path: str, encoding: str = "utf-8") -> str:
 
 
 # ----------------------------------------
-# 🔍 VALIDATE FILE TYPE + SIZE
+# 🔍 VALIDATE FILE
 # ----------------------------------------
 def validate_file(path: str, allowed_types=None, max_size_mb=10):
 
@@ -122,7 +117,7 @@ def validate_file(path: str, allowed_types=None, max_size_mb=10):
 
 
 # ----------------------------------------
-# 🗑️ SAFE DELETE FILE
+# 🗑️ SAFE DELETE
 # ----------------------------------------
 def safe_delete(path: Optional[str]) -> bool:
 
@@ -151,7 +146,7 @@ def cleanup_files(paths):
 
 
 # ----------------------------------------
-# 🔐 FILE HASH (FOR CACHE / DEDUP)
+# 🔐 FILE HASH
 # ----------------------------------------
 def file_hash_from_bytes(data: bytes) -> str:
 
@@ -188,7 +183,7 @@ def get_file_info(path: str):
         "path": path,
         "size_bytes": os.path.getsize(path),
         "filename": os.path.basename(path),
-        "extension": os.path.splitext(path)[1]
+        "extension": os.path.splitext(path)[1],
     }
 
 
@@ -213,7 +208,7 @@ def save_front_back(front_file, back_file) -> Tuple[Optional[str], Optional[str]
 
 
 # ----------------------------------------
-# ⚡ TEMP DIRECTORY CLEANUP
+# ⚡ TEMP CLEANUP (OPTIONAL)
 # ----------------------------------------
 def cleanup_temp_dir():
 

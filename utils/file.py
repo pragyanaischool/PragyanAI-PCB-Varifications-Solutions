@@ -1,9 +1,20 @@
 # utils/file.py
 
+"""
+File Utilities for PCB AI System
+
+Handles:
+✔ Streamlit file upload safely
+✔ File validation
+✔ Hashing (for caching/dedup)
+✔ Cleanup
+✔ Debug-safe operations
+"""
+
 import os
 import tempfile
 import hashlib
-from typing import Union, Tuple, Optional
+from typing import Optional, Tuple
 
 
 # ----------------------------------------
@@ -11,24 +22,28 @@ from typing import Union, Tuple, Optional
 # ----------------------------------------
 def save_uploaded_file(uploaded_file) -> Optional[str]:
     """
-    Save a Streamlit UploadedFile to a temp file and return its path.
+    Save a Streamlit UploadedFile to a temp file.
+    Returns file path or None.
     """
 
     if uploaded_file is None:
+        print("[FILE] No file uploaded")
         return None
 
     try:
         suffix = _infer_suffix(uploaded_file.name)
 
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+
             data = uploaded_file.read()
 
             if not data:
-                raise ValueError("Uploaded file is empty")
+                print("[FILE] Empty file")
+                return None
 
             tmp.write(data)
 
-            # 🔥 CRITICAL FIX (prevents OpenCV/PIL issues)
+            # 🔥 CRITICAL FIX (prevents image load errors)
             tmp.flush()
             tmp.seek(0)
 
@@ -44,15 +59,15 @@ def save_uploaded_file(uploaded_file) -> Optional[str]:
 # ----------------------------------------
 def save_bytes_to_file(data: bytes, suffix: str = ".bin") -> Optional[str]:
 
-    try:
-        if not data:
-            raise ValueError("Empty byte data")
+    if not data:
+        print("[FILE] Empty byte data")
+        return None
 
+    try:
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
             tmp.write(data)
             tmp.flush()
             tmp.seek(0)
-
             return tmp.name
 
     except Exception as e:
@@ -85,6 +100,28 @@ def read_file_text(path: str, encoding: str = "utf-8") -> str:
 
 
 # ----------------------------------------
+# 🔍 VALIDATE FILE TYPE + SIZE
+# ----------------------------------------
+def validate_file(path: str, allowed_types=None, max_size_mb=10):
+
+    if not path or not os.path.exists(path):
+        return False, "File does not exist"
+
+    # Extension check
+    if allowed_types:
+        ext = os.path.splitext(path)[1].lower().replace(".", "")
+        if ext not in allowed_types:
+            return False, f"Unsupported file type: {ext}"
+
+    # Size check
+    size_mb = os.path.getsize(path) / (1024 * 1024)
+    if size_mb > max_size_mb:
+        return False, f"File too large ({size_mb:.2f} MB)"
+
+    return True, "Valid file"
+
+
+# ----------------------------------------
 # 🗑️ SAFE DELETE FILE
 # ----------------------------------------
 def safe_delete(path: Optional[str]) -> bool:
@@ -114,7 +151,7 @@ def cleanup_files(paths):
 
 
 # ----------------------------------------
-# 🔐 FILE HASH (FOR CACHING / DEDUP)
+# 🔐 FILE HASH (FOR CACHE / DEDUP)
 # ----------------------------------------
 def file_hash_from_bytes(data: bytes) -> str:
 
@@ -141,34 +178,18 @@ def file_hash_from_path(path: str) -> str:
 # ----------------------------------------
 # 🏷️ FILE INFO
 # ----------------------------------------
-def get_file_info(path: str) -> dict:
+def get_file_info(path: str):
 
     if not path or not os.path.exists(path):
         return {"exists": False}
 
     return {
         "exists": True,
+        "path": path,
         "size_bytes": os.path.getsize(path),
         "filename": os.path.basename(path),
-        "extension": os.path.splitext(path)[1],
+        "extension": os.path.splitext(path)[1]
     }
-
-
-# ----------------------------------------
-# 🔎 VALIDATE FILE TYPE
-# ----------------------------------------
-def validate_file_type(path: str, allowed_types=None) -> Tuple[bool, str]:
-
-    if not path or not os.path.exists(path):
-        return False, "File does not exist"
-
-    if allowed_types:
-        ext = os.path.splitext(path)[1].lower().replace(".", "")
-
-        if ext not in allowed_types:
-            return False, f"Unsupported file type: {ext}"
-
-    return True, "Valid file"
 
 
 # ----------------------------------------
@@ -181,7 +202,7 @@ def _infer_suffix(filename: str) -> str:
 
 
 # ----------------------------------------
-# 🧠 FRONT/BACK PAIR SAVE
+# 🧠 FRONT/BACK PCB SUPPORT
 # ----------------------------------------
 def save_front_back(front_file, back_file) -> Tuple[Optional[str], Optional[str]]:
 
@@ -192,7 +213,7 @@ def save_front_back(front_file, back_file) -> Tuple[Optional[str], Optional[str]
 
 
 # ----------------------------------------
-# ⚡ TEMP DIRECTORY CLEANUP (OPTIONAL)
+# ⚡ TEMP DIRECTORY CLEANUP
 # ----------------------------------------
 def cleanup_temp_dir():
 
@@ -213,4 +234,3 @@ def cleanup_temp_dir():
     except Exception as e:
         print(f"[CLEANUP ERROR] {e}")
         return False
-        

@@ -1,3 +1,5 @@
+# ai/orchestrator.py
+
 import streamlit as st
 import time
 
@@ -54,146 +56,104 @@ def meta_agent(memory):
             memory,
             "You are a Chief PCB Design Engineer.",
             """
-            Combine all analysis:
-
-            Provide:
-            - Final summary
+            Combine all analysis and provide:
+            - Summary
             - Top issues
-            - Recommended fixes
-            - Overall score (0-100)
+            - Fixes
+            - Score (0-100)
 
-            Return JSON.
+            Return JSON
             """
         )
     )
 
 
 # ----------------------------------------
-# 🚀 FULL PIPELINE (FIXED)
+# 🚀 MAIN PIPELINE (FIXED)
 # ----------------------------------------
 def run_full_analysis(
     image_path,
+    graph_summary=None,
     graph_summary_input=None,
     gnn_output=None,
     ocr_text=None
 ):
 
+    # ✅ Normalize input (CRITICAL FIX)
+    if graph_summary_input is None:
+        graph_summary_input = graph_summary
+
     memory = PCBMemory()
-    debug_log = {}
+
+    debug = {}
     timings = {}
 
     # ----------------------------------------
     # 👁️ VISION
     # ----------------------------------------
-    vision_res = safe_run("vision", run_vision_agent, image_path)
-    memory.update("vision", vision_res["data"])
-    debug_log["vision"] = vision_res
-    timings["vision"] = vision_res["time"]
+    vision = safe_run("vision", run_vision_agent, image_path)
+    memory.update("vision", vision["data"])
+    debug["vision"] = vision
+    timings["vision"] = vision["time"]
 
     # ----------------------------------------
     # 🔤 OCR
     # ----------------------------------------
-    if ocr_text:
-        ocr_res = safe_run("ocr", run_ocr_agent, ocr_text)
-    else:
-        ocr_res = safe_run("ocr", run_ocr_agent, None, image_path)
-
-    memory.update("ocr", ocr_res["data"])
-    debug_log["ocr"] = ocr_res
-    timings["ocr"] = ocr_res["time"]
+    ocr = safe_run("ocr", run_ocr_agent, ocr_text, image_path)
+    memory.update("ocr", ocr["data"])
+    debug["ocr"] = ocr
+    timings["ocr"] = ocr["time"]
 
     # ----------------------------------------
-    # 🔗 GRAPH (USE EXTERNAL IF PROVIDED)
+    # 🔗 GRAPH
     # ----------------------------------------
     if graph_summary_input:
         memory.update("graph", graph_summary_input)
-
-        debug_log["graph"] = {
-            "data": graph_summary_input,
-            "time": 0,
-            "error": None
-        }
-        timings["graph"] = 0
-
     else:
-        graph_res = safe_run(
-            "graph",
-            build_graph,
-            memory.get("vision"),
-            memory.get("ocr")
-        )
-
-        memory.update("graph", graph_res["data"])
-        debug_log["graph"] = graph_res
-        timings["graph"] = graph_res["time"]
+        graph = safe_run("graph", build_graph,
+                         memory.get("vision"),
+                         memory.get("ocr"))
+        memory.update("graph", graph["data"])
+        debug["graph"] = graph
+        timings["graph"] = graph["time"]
 
     # ----------------------------------------
     # 🤖 GNN
     # ----------------------------------------
-    try:
-        gnn_res = safe_run(
-            "gnn",
-            run_gnn_agent,
-            memory.get("graph"),
-            gnn_output
-        )
-    except:
-        gnn_res = {"data": {}, "time": 0, "error": "GNN skipped"}
-
-    memory.update("gnn", gnn_res["data"])
-    debug_log["gnn"] = gnn_res
-    timings["gnn"] = gnn_res["time"]
+    gnn = safe_run("gnn", run_gnn_agent,
+                   memory.get("graph"),
+                   gnn_output)
+    memory.update("gnn", gnn["data"])
+    debug["gnn"] = gnn
+    timings["gnn"] = gnn["time"]
 
     # ----------------------------------------
-    # ⚡ POWER
+    # ⚡ DOMAIN AGENTS
     # ----------------------------------------
-    power_res = safe_run("power", run_power_agent, memory)
-    memory.update("power", power_res["data"])
-    debug_log["power"] = power_res
-    timings["power"] = power_res["time"]
-
-    # ----------------------------------------
-    # 🔌 SIGNAL
-    # ----------------------------------------
-    signal_res = safe_run("signal", run_signal_agent, memory)
-    memory.update("signal", signal_res["data"])
-    debug_log["signal"] = signal_res
-    timings["signal"] = signal_res["time"]
-
-    # ----------------------------------------
-    # 🌡️ THERMAL
-    # ----------------------------------------
-    thermal_res = safe_run("thermal", run_thermal_agent, memory)
-    memory.update("thermal", thermal_res["data"])
-    debug_log["thermal"] = thermal_res
-    timings["thermal"] = thermal_res["time"]
-
-    # ----------------------------------------
-    # 🧩 LAYOUT
-    # ----------------------------------------
-    layout_res = safe_run("layout", run_layout_agent, memory)
-    memory.update("layout", layout_res["data"])
-    debug_log["layout"] = layout_res
-    timings["layout"] = layout_res["time"]
+    for name, agent in [
+        ("power", run_power_agent),
+        ("signal", run_signal_agent),
+        ("thermal", run_thermal_agent),
+        ("layout", run_layout_agent),
+    ]:
+        res = safe_run(name, agent, memory)
+        memory.update(name, res["data"])
+        debug[name] = res
+        timings[name] = res["time"]
 
     # ----------------------------------------
     # 🔧 TOOL
     # ----------------------------------------
-    tools_res = safe_run("tools", run_tool_agent, memory)
-    memory.update("tools", tools_res["data"])
-    debug_log["tools"] = tools_res
-    timings["tools"] = tools_res["time"]
+    tools = safe_run("tools", run_tool_agent, memory)
+    memory.update("tools", tools["data"])
+    debug["tools"] = tools
+    timings["tools"] = tools["time"]
 
     # ----------------------------------------
-    # 🧠 META
+    # 🧠 FINAL
     # ----------------------------------------
-    meta_res = safe_run("meta", meta_agent, memory)
-    debug_log["meta"] = meta_res
-    timings["meta"] = meta_res["time"]
+    final = safe_run("meta", meta_agent, memory)
 
-    # ----------------------------------------
-    # 📦 FINAL OUTPUT (FLAT STRUCTURE)
-    # ----------------------------------------
     return {
         "vision": memory.get("vision"),
         "ocr": memory.get("ocr"),
@@ -204,24 +164,20 @@ def run_full_analysis(
         "thermal": memory.get("thermal"),
         "layout": memory.get("layout"),
         "tools": memory.get("tools"),
-        "final": meta_res["data"],
-
-        # Debug
-        "debug": debug_log,
-        "timings": timings,
-        "memory_summary": memory.summary()
+        "final": final["data"],
+        "debug": debug,
+        "timings": timings
     }
 
 
 # ----------------------------------------
-# ⚡ CACHE (FIXED SIGNATURE)
+# ⚡ CACHE
 # ----------------------------------------
-@st.cache_data(show_spinner=True)
-def cached_full_analysis(image_path, graph_summary_input, gnn_output, ocr_text):
-
+@st.cache_data
+def cached_full_analysis(image_path, graph_summary, gnn_output, ocr_text):
     return run_full_analysis(
         image_path=image_path,
-        graph_summary_input=graph_summary_input,
+        graph_summary=graph_summary,
         gnn_output=gnn_output,
         ocr_text=ocr_text
     )

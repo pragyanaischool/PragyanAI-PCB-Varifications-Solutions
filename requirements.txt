@@ -40,7 +40,7 @@ PyPDF2
 pdfplumber
 pytesseract
 pdf2image
-
+pypdf
 # -----------------------------
 # 🔗 Graph Processing
 # -----------------------------

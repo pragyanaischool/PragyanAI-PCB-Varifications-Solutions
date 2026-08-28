@@ -1,63 +1,107 @@
-"""
-Report Service
+"""Report Service for PragyanAI PCB Copilot.
 
-Combines:
-- Rule Engine output
-- Multi-agent AI outputs
-- Tool Agent (fixes)
-- Meta Agent summary
-
-Generates:
-- Unified issue list
-- Score
-- Summary
-- Category-wise breakdown
-- Prioritized issues
-- Action plan
+Normalizes multimodal defect detections, maps IPC severity levels,
+and generates structured executive summaries and markdown reports.
 """
 
-from typing import Dict, List
+from typing import Any, Dict, List
 
 
 # ----------------------------------------
-# 🧠 NORMALIZE ISSUES
+#  NORMALIZE ISSUES
 # ----------------------------------------
-def normalize_issues(agent_name: str, result) -> List[Dict]:
-
+def normalize_issues(agent_name: str, result: Any) -> List[Dict]:
     issues = []
+    if not result:
+        return issues
 
-    if isinstance(result, dict) and "issues" in result:
-        for issue in result["issues"]:
-            issues.append({
-                "category": agent_name,
-                "issue": issue.get("issue", ""),
-                "severity": issue.get("severity", "Medium"),
-                "explanation": issue.get("explanation", ""),
-                "fix": issue.get("fix", ""),
-                "confidence": issue.get("confidence", 0.7)
-            })
+    raw_list = []
+    if isinstance(result, list):
+        raw_list = result
+    elif isinstance(result, dict):
+        if "issues" in result and isinstance(result["issues"], list):
+            raw_list = result["issues"]
+        elif "defects" in result and isinstance(result["defects"], list):
+            raw_list = result["defects"]
+        elif "reasoning" in result and isinstance(result["reasoning"], dict):
+            raw_list = result["reasoning"].get(
+                "defects", result["reasoning"].get("issues", [])
+            )
+
+    for item in raw_list:
+        if not isinstance(item, dict):
+            continue
+
+        # Flexible key extraction
+        name = (
+            item.get("issue")
+            or item.get("type")
+            or item.get("category")
+            or "PCB Anomaly"
+        )
+        explanation = (
+            item.get("explanation")
+            or item.get("description")
+            or item.get("details")
+            or ""
+        )
+        fix = (
+            item.get("fix")
+            or item.get("recommended_fix")
+            or item.get("action")
+            or "Inspect and rework per IPC-A-610 standards."
+        )
+        location = (
+            item.get("location")
+            or item.get("component_or_net_reference")
+            or "Board Wide"
+        )
+        raw_sev = str(item.get("severity", "medium")).lower()
+
+        # Map severities
+        if raw_sev in ["critical", "crit", "severe"]:
+            sev = "Critical"
+        elif raw_sev in ["high", "major"]:
+            sev = "High"
+        elif raw_sev in ["low", "minor"]:
+            sev = "Low"
+        else:
+            sev = "Medium"
+
+        issues.append({
+            "category": agent_name.capitalize(),
+            "issue": f"{name} ({location})" if location != "Board Wide" else name,
+            "severity": sev,
+            "location": location,
+            "explanation": explanation,
+            "fix": fix,
+            "confidence": float(item.get("confidence", item.get("confidence_score", 0.85))),
+        })
 
     return issues
 
 
 # ----------------------------------------
-# 🔗 MERGE ALL ISSUES
+#  MERGE ALL ISSUES
 # ----------------------------------------
-def merge_all_issues(rule_issues: List[Dict], agent_outputs: Dict):
-
+def merge_all_issues(rule_issues: List[Dict], agent_outputs: Dict) -> List[Dict]:
     all_issues = []
 
-    # Rule issues
-    for r in rule_issues:
-        all_issues.append({
-            "category": r.get("category", "Rule"),
-            "issue": r.get("issue", ""),
-            "severity": r.get("severity", "Medium"),
-            "explanation": r.get("explanation", ""),
-            "fix": r.get("fix", "")
-        })
+    # Process Rule-Engine issues
+    if rule_issues:
+        for r in rule_issues:
+            if isinstance(r, dict):
+                all_issues.append({
+                    "category": r.get("category", "Rule Engine"),
+                    "issue": r.get("issue") or r.get("description") or "Design Rule Violation",
+                    "severity": str(r.get("severity", "Medium")).capitalize(),
+                    "location": r.get("location", "N/A"),
+                    "explanation": r.get("explanation", ""),
+                    "fix": r.get("fix", "Review schematic netlist"),
+                    "confidence": 1.0,
+                })
 
-    # Agent issues
+    # Process Agent issues
     for agent_name, output in agent_outputs.items():
         all_issues.extend(normalize_issues(agent_name, output))
 
@@ -65,201 +109,186 @@ def merge_all_issues(rule_issues: List[Dict], agent_outputs: Dict):
 
 
 # ----------------------------------------
-# 📊 SEVERITY COUNT
+#  SEVERITY COUNT
 # ----------------------------------------
-def severity_breakdown(issues: List[Dict]):
-
-    stats = {"high": 0, "medium": 0, "low": 0}
+def severity_breakdown(issues: List[Dict]) -> Dict[str, int]:
+    stats = {"critical": 0, "high": 0, "medium": 0, "low": 0}
 
     for i in issues:
-        s = i.get("severity", "").lower()
-
-        if s == "high":
-            stats["high"] += 1
-        elif s == "medium":
+        s = str(i.get("severity", "")).lower()
+        if s in stats:
+            stats[s] += 1
+        else:
             stats["medium"] += 1
-        elif s == "low":
-            stats["low"] += 1
 
     return stats
 
 
 # ----------------------------------------
-# 🎯 SCORE CALCULATION (IMPROVED)
+#  SCORE CALCULATION
 # ----------------------------------------
-def calculate_score(issues: List[Dict]):
-
+def calculate_score(issues: List[Dict]) -> int:
     score = 100
 
     for i in issues:
-        s = i.get("severity", "").lower()
-
-        if s == "high":
+        s = str(i.get("severity", "")).lower()
+        if s == "critical":
+            score -= 20
+        elif s == "high":
             score -= 12
         elif s == "medium":
             score -= 6
         elif s == "low":
-            score -= 3
+            score -= 2
 
     return max(score, 0)
 
 
 # ----------------------------------------
-# 🧾 EXECUTIVE SUMMARY
+#  EXECUTIVE SUMMARY
 # ----------------------------------------
-def generate_summary(issues: List[Dict], stats: Dict):
-
+def generate_summary(issues: List[Dict], stats: Dict) -> str:
     total = len(issues)
 
     if total == 0:
-        return "✅ PCB design looks clean with no major issues."
+        return "✅ PCB design and assembly verified. No critical defects or violations identified."
 
-    summary = f"""
-PCB Analysis Summary:
+    summary = (
+        f"PCB Inspection Summary:\n\n"
+        f"- Total Issues Detected: {total}\n"
+        f"- Critical (Hard Shorts/Bridges): {stats['critical']}\n"
+        f"- High Severity (Cold Joints/Corrosion): {stats['high']}\n"
+        f"- Medium Severity (Layout/Thermals): {stats['medium']}\n"
+        f"- Low Severity (Cosmetic/Slight Misalignment): {stats['low']}\n"
+    )
 
-- Total Issues: {total}
-- High Severity: {stats['high']}
-- Medium Severity: {stats['medium']}
-- Low Severity: {stats['low']}
-"""
-
-    if stats["high"] > 0:
-        summary += "\n⚠️ Critical issues detected. Immediate attention required."
+    if stats["critical"] > 0 or stats["high"] > 0:
+        summary += "\n⚠️ Action Required: Severe physical assembly or topological defects found. Immediate board rework needed."
     elif stats["medium"] > 0:
-        summary += "\n⚡ Moderate issues present. Optimization recommended."
+        summary += "\n⚡ Warning: Moderate layout or thermal bottlenecks detected. Review before fabrication."
     else:
-        summary += "\n✅ Minor issues only. Design is stable."
+        summary += "\n✅ Notice: Minor anomalies present. Assembly remains functional."
 
     return summary.strip()
 
 
 # ----------------------------------------
-# 🧠 FINAL REPORT GENERATOR
+#  PRIORITIZATION & CATEGORIES
 # ----------------------------------------
-def generate_report(rule_issues: List[Dict], agent_outputs: Dict):
-
-    all_issues = merge_all_issues(rule_issues, agent_outputs)
-    stats = severity_breakdown(all_issues)
-    score = calculate_score(all_issues)
-    summary = generate_summary(all_issues, stats)
-
-    return {
-        "score": score,
-        "summary": summary,
-        "issue_count": len(all_issues),
-        "severity": stats,
-        "issues": all_issues
-    }
+def prioritize_issues(issues: List[Dict]) -> List[Dict]:
+    priority_map = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+    return sorted(
+        issues,
+        key=lambda x: priority_map.get(str(x.get("severity", "medium")).lower(), 2),
+    )
 
 
-# ----------------------------------------
-# 📊 CATEGORY BREAKDOWN
-# ----------------------------------------
-def category_breakdown(issues: List[Dict]):
-
+def category_breakdown(issues: List[Dict]) -> Dict[str, List[Dict]]:
     categories = {}
-
     for issue in issues:
-        cat = issue.get("category", "Other")
-
-        if cat not in categories:
-            categories[cat] = []
-
-        categories[cat].append(issue)
-
+        cat = issue.get("category", "General")
+        categories.setdefault(cat, []).append(issue)
     return categories
 
 
 # ----------------------------------------
-# 📈 PRIORITIZATION
+#  COMPLETE SYSTEM REPORT
 # ----------------------------------------
-def prioritize_issues(issues: List[Dict]):
-
-    priority_map = {"high": 0, "medium": 1, "low": 2}
-
-    return sorted(
-        issues,
-        key=lambda x: priority_map.get(x.get("severity", "medium").lower(), 1)
-    )
-
-
-# ----------------------------------------
-# 🔧 EXTRACT TOOL ACTIONS
-# ----------------------------------------
-def extract_actions(tool_output):
-
-    if not isinstance(tool_output, dict):
-        return []
-
-    return tool_output.get("actions", [])
-
-
-# ----------------------------------------
-# 📦 FULL ENTERPRISE REPORT
-# ----------------------------------------
-def build_enterprise_report(rule_issues: List[Dict], agent_outputs: Dict):
-
-    base = generate_report(rule_issues, agent_outputs)
-
-    prioritized = prioritize_issues(base["issues"])
-    category_view = category_breakdown(base["issues"])
-
-    return {
-        **base,
-        "prioritized_issues": prioritized[:10],
-        "categories": category_view
-    }
-
-
-# ----------------------------------------
-# 🚀 COMPLETE SYSTEM REPORT (AI INTEGRATED)
-# ----------------------------------------
-def build_full_system_report(results: Dict):
-
-    """
-    Input: orchestrator results
-    """
+def build_full_system_report(results: Dict) -> Dict:
+    """Consolidates orchestrator outputs into a unified inspection report."""
+    if not results:
+        return {
+            "score": 0,
+            "summary": "No analysis data available.",
+            "issue_count": 0,
+            "severity": {"critical": 0, "high": 0, "medium": 0, "low": 0},
+            "issues": [],
+            "recommended_actions": [],
+        }
 
     agent_outputs = {
+        "vision": results.get("vision"),
         "power": results.get("power"),
         "signal": results.get("signal"),
         "thermal": results.get("thermal"),
         "layout": results.get("layout"),
-        "vision": results.get("vision", {}).get("reasoning")
+        "gnn": results.get("gnn"),
     }
 
+    # If the orchestrator already synthesized final issues, include them
+    direct_issues = results.get("issues", [])
+    if direct_issues:
+        agent_outputs["orchestrator"] = direct_issues
+
+    all_issues = merge_all_issues([], agent_outputs)
+    stats = severity_breakdown(all_issues)
+    score = calculate_score(all_issues)
+
+    final_meta = results.get("final") or {}
+    summary = final_meta.get("summary") or generate_summary(all_issues, stats)
+
+    # Use meta-score if valid, else use calculated score
+    if isinstance(final_meta.get("score"), (int, float)):
+        score = final_meta["score"]
+
+    prioritized = prioritize_issues(all_issues)
+    categories = category_breakdown(all_issues)
+
+    # Extract actions
+    actions = []
     tool_output = results.get("tools", {})
-    final_output = results.get("final", {})
+    if isinstance(tool_output, dict):
+        actions = tool_output.get("actions", [])
+    if not actions and all_issues:
+        actions = [{"action": f"Rework {i['issue']}: {i['fix']}"} for i in prioritized[:5]]
 
-    report = build_enterprise_report([], agent_outputs)
-
-    # Add tool actions
-    report["recommended_actions"] = extract_actions(tool_output)
-
-    # Add meta-agent summary
-    report["final_summary"] = final_output.get("summary")
-    report["final_score"] = final_output.get("score")
-
-    return report
+    return {
+        "score": int(score),
+        "status": final_meta.get("status", "REWORK_REQUIRED" if score < 70 else "PASS"),
+        "summary": summary,
+        "issue_count": len(all_issues),
+        "severity": stats,
+        "issues": all_issues,
+        "prioritized_issues": prioritized[:10],
+        "categories": categories,
+        "recommended_actions": actions,
+    }
 
 
 # ----------------------------------------
-# 📝 MARKDOWN EXPORT
+#  MARKDOWN EXPORT
 # ----------------------------------------
 def report_to_markdown(report: Dict) -> str:
+    md = "# ⚡ PragyanAI PCB Copilot - Quality Inspection Report\n\n"
+    md += f"**Health Score:** {report.get('score', 0)} / 100\n"
+    md += f"**Inspection Verdict:** {report.get('status', 'N/A')}\n\n"
 
-    md = "# 🔧 PCB Analysis Report\n\n"
+    md += "## 📋 Executive Summary\n"
+    md += f"{report.get('summary', 'No summary available.')}\n\n"
 
-    md += f"## 🧠 Summary\n{report.get('summary','')}\n\n"
-    md += f"## 📊 Score: {report.get('score','N/A')}\n\n"
+    md += "## ⚠️ Detected Issues\n"
+    issues = report.get("issues", [])
+    if issues:
+        for idx, i in enumerate(issues, start=1):
+            md += f"### {idx}. [{i.get('severity', 'Medium')}] {i.get('issue', 'Unnamed Defect')}\n"
+            md += f"- **Category:** {i.get('category', 'General')}\n"
+            md += f"- **Location:** {i.get('location', 'N/A')}\n"
+            if i.get("explanation"):
+                md += f"- **Description:** {i.get('explanation')}\n"
+            if i.get("fix"):
+                md += f"- **Recommended Fix:** {i.get('fix')}\n"
+            md += "\n"
+    else:
+        md += "_No defects identified during inspection._\n\n"
 
-    md += "## ⚠️ Issues\n"
-    for i in report.get("issues", []):
-        md += f"- [{i['severity']}] {i['issue']}\n"
-
-    md += "\n## 🔧 Recommended Actions\n"
-    for a in report.get("recommended_actions", []):
-        md += f"- {a.get('action')}\n"
+    md += "## 🔧 Recommended Action Plan\n"
+    actions = report.get("recommended_actions", [])
+    if actions:
+        for a in actions:
+            action_text = a.get("action") if isinstance(a, dict) else str(a)
+            md += f"- {action_text}\n"
+    else:
+        md += "- No rework required.\n"
 
     return md
     

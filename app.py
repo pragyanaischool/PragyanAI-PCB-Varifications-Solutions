@@ -28,7 +28,18 @@ from ui.visualization import show_visualization
 
 # Utils
 from utils.file import safe_delete, save_uploaded_file
+import os
+import sys
+from pathlib import Path
 
+# Ensure repository root is on sys.path
+ROOT_DIR = Path(__file__).resolve().parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
+# Suppress Ultralytics permission warnings & auto-installs
+os.environ["YOLO_CONFIG_DIR"] = "/tmp/Ultralytics"
+os.environ["ULTRALYTICS_NO_AUTO_INSTALL"] = "1"
 # ----------------------------------------
 # CONFIG & STYLES
 # ----------------------------------------

@@ -1,9 +1,8 @@
-# services/pdf_parser.py
-
 """
 PDF Parser for PCB AI System
 
 ✔ Extract text from PDFs
+✔ Modern pypdf / PyPDF2 fallback
 ✔ OCR fallback for scanned PDFs
 ✔ Extract metadata
 ✔ Extract tables (basic)
@@ -14,40 +13,51 @@ PDF Parser for PCB AI System
 import os
 from typing import Dict, List
 
-# Text extraction
-from PyPDF2 import PdfReader
+# ----------------------------------------
+# SAFE PDF IMPORT (pypdf -> PyPDF2 -> Fallback)
+# ----------------------------------------
+PDF_READER_AVAILABLE = False
+try:
+    from pypdf import PdfReader
+    PDF_READER_AVAILABLE = True
+except ImportError:
+    try:
+        from PyPDF2 import PdfReader
+        PDF_READER_AVAILABLE = True
+    except ImportError:
+        PdfReader = None
+        PDF_READER_AVAILABLE = False
 
 # Optional OCR
 try:
     import pytesseract
     from pdf2image import convert_from_path
     OCR_AVAILABLE = True
-except:
+except Exception:
     OCR_AVAILABLE = False
 
 # Optional table extraction
 try:
     import pdfplumber
     TABLE_AVAILABLE = True
-except:
+except Exception:
     TABLE_AVAILABLE = False
 
 
 # ----------------------------------------
-# 📄 TEXT EXTRACTION (STANDARD)
+#  TEXT EXTRACTION (STANDARD)
 # ----------------------------------------
 def extract_text_from_pdf(file_path: str) -> str:
+    if not PDF_READER_AVAILABLE:
+        return "[ERROR] No PDF library available (install pypdf or PyPDF2)"
 
     text = ""
-
     try:
         reader = PdfReader(file_path)
-
         for page in reader.pages:
             page_text = page.extract_text()
             if page_text:
                 text += page_text + "\n"
-
     except Exception as e:
         return f"[ERROR] {str(e)}"
 
@@ -55,21 +65,17 @@ def extract_text_from_pdf(file_path: str) -> str:
 
 
 # ----------------------------------------
-# 🔍 OCR EXTRACTION (SCANNED PDFs)
+#  OCR EXTRACTION (SCANNED PDFs)
 # ----------------------------------------
 def extract_text_with_ocr(file_path: str) -> str:
-
     if not OCR_AVAILABLE:
         return "[OCR NOT AVAILABLE] Install pytesseract + pdf2image"
 
     text = ""
-
     try:
         images = convert_from_path(file_path)
-
         for img in images:
             text += pytesseract.image_to_string(img) + "\n"
-
     except Exception as e:
         return f"[OCR ERROR] {str(e)}"
 
@@ -77,38 +83,37 @@ def extract_text_with_ocr(file_path: str) -> str:
 
 
 # ----------------------------------------
-# 🧠 SMART TEXT EXTRACTION
+#  SMART TEXT EXTRACTION
 # ----------------------------------------
 def extract_pdf_text(file_path: str) -> str:
-
     text = extract_text_from_pdf(file_path)
 
-    # If too small → fallback to OCR
-    if len(text.strip()) < 50:
-        ocr_text = extract_text_with_ocr(file_path)
-
-        if "[OCR ERROR]" not in ocr_text:
-            return ocr_text
+    # If text is error message or negligible → fallback to OCR
+    if text.startswith("[ERROR]") or len(text.strip()) < 50:
+        if OCR_AVAILABLE:
+            ocr_text = extract_text_with_ocr(file_path)
+            if "[OCR ERROR]" not in ocr_text and "[OCR NOT AVAILABLE]" not in ocr_text:
+                return ocr_text
 
     return text
 
 
 # ----------------------------------------
-# 📊 METADATA EXTRACTION
+#  METADATA EXTRACTION
 # ----------------------------------------
 def extract_metadata(file_path: str) -> Dict:
+    if not PDF_READER_AVAILABLE:
+        return {"title": "", "author": "", "pages": 0}
 
     try:
         reader = PdfReader(file_path)
-        meta = reader.metadata
-
+        meta = reader.metadata or {}
         return {
-            "title": meta.get("/Title", ""),
-            "author": meta.get("/Author", ""),
+            "title": str(meta.get("/Title", "")),
+            "author": str(meta.get("/Author", "")),
             "pages": len(reader.pages)
         }
-
-    except:
+    except Exception:
         return {
             "title": "",
             "author": "",
@@ -117,37 +122,31 @@ def extract_metadata(file_path: str) -> Dict:
 
 
 # ----------------------------------------
-# 📋 TABLE EXTRACTION (BASIC BOM SUPPORT)
+#  TABLE EXTRACTION (BASIC BOM SUPPORT)
 # ----------------------------------------
 def extract_tables(file_path: str) -> List:
-
     if not TABLE_AVAILABLE:
         return []
 
     tables = []
-
     try:
         with pdfplumber.open(file_path) as pdf:
-
             for page in pdf.pages:
                 page_tables = page.extract_tables()
-
-                for table in page_tables:
-                    tables.append(table)
-
-    except:
+                if page_tables:
+                    for table in page_tables:
+                        tables.append(table)
+    except Exception:
         return []
 
     return tables
 
 
 # ----------------------------------------
-# ✂️ CHUNK TEXT FOR RAG
+#  CHUNK TEXT FOR RAG
 # ----------------------------------------
 def chunk_text(text: str, chunk_size=500, overlap=50) -> List[str]:
-
     chunks = []
-
     start = 0
     length = len(text)
 
@@ -155,17 +154,15 @@ def chunk_text(text: str, chunk_size=500, overlap=50) -> List[str]:
         end = start + chunk_size
         chunk = text[start:end]
         chunks.append(chunk)
-
         start += chunk_size - overlap
 
     return chunks
 
 
 # ----------------------------------------
-# 🧠 MAIN PARSER
+#  MAIN PARSER
 # ----------------------------------------
 def parse_pdf(file_path: str) -> Dict:
-
     if not os.path.exists(file_path):
         return {"error": "File not found"}
 
@@ -173,7 +170,7 @@ def parse_pdf(file_path: str) -> Dict:
         text = extract_pdf_text(file_path)
         metadata = extract_metadata(file_path)
         tables = extract_tables(file_path)
-        chunks = chunk_text(text)
+        chunks = chunk_text(text) if text and not text.startswith("[ERROR]") else []
 
         return {
             "text": text,
@@ -184,37 +181,32 @@ def parse_pdf(file_path: str) -> Dict:
             "num_tables": len(tables),
             "length": len(text)
         }
-
     except Exception as e:
         return {"error": str(e)}
 
 
 # ----------------------------------------
-# ⚡ QUICK PARSE (FAST MODE)
+#  QUICK PARSE (FAST MODE)
 # ----------------------------------------
 def quick_parse_pdf(file_path: str) -> Dict:
-
     try:
         text = extract_text_from_pdf(file_path)
-
         return {
             "text_preview": text[:1000],
             "length": len(text)
         }
-
     except Exception as e:
         return {"error": str(e)}
 
 
 # ----------------------------------------
-# 📊 SUMMARY FOR UI
+#  SUMMARY FOR UI
 # ----------------------------------------
 def pdf_summary(parsed_pdf: Dict) -> Dict:
-
-    if "error" in parsed_pdf:
+    if not isinstance(parsed_pdf, dict) or "error" in parsed_pdf:
         return {
             "valid": False,
-            "error": parsed_pdf["error"]
+            "error": parsed_pdf.get("error", "Unknown error") if isinstance(parsed_pdf, dict) else "Invalid output"
         }
 
     return {
@@ -224,4 +216,3 @@ def pdf_summary(parsed_pdf: Dict) -> Dict:
         "chunks": parsed_pdf.get("num_chunks", 0),
         "tables": parsed_pdf.get("num_tables", 0)
     }
-    
